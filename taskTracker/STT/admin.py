@@ -2,7 +2,8 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.forms import UserChangeForm, UserCreationForm
 
-from .models import Users
+from .models import Projects, Tasks, Users
+from django.contrib.auth.models import Group
 
 
 class AdminUserCreationForm(UserCreationForm):
@@ -17,7 +18,6 @@ class AdminUserChangeForm(UserChangeForm):
         fields = "__all__"
 
 
-@admin.register(Users)
 class UsersAdmin(UserAdmin):
     def get_queryset(self, request):
         return super().get_queryset(request).filter(is_staff=True, is_superuser=False)
@@ -48,5 +48,14 @@ class UsersAdmin(UserAdmin):
             "is_active",
         )}),
     )
+
+
+# Team admins use Django admin for work records, not user administration.
+if admin.site.is_registered(Users):
+    admin.site.unregister(Users)
+if admin.site.is_registered(Group):
+    admin.site.unregister(Group)
+admin.site.register(Projects)
+admin.site.register(Tasks)
 
 

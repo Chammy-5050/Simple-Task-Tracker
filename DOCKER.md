@@ -30,7 +30,7 @@ This configuration uses Django's development server and the project's developmen
 
 The STT migration creates `roles`, `users`, `projects`, and `tasks`. Authentication uses `STT.Users`, with email as the login identifier and `user_id` as the JWT user identifier. Django admin is enabled at `/admin/` and uses sessions; the API uses JWTs. Django's supporting tables remain in use. Accounts in the old `auth_user` table are not automatically transferred into `users`.
 
-To create the first administrator, run `docker compose run --rm web python manage.py createsuperuser` and enter an email, full name, phone number, and password. Sign in at http://localhost:8000/admin/ to create and manage additional administrators. Admin accounts need both `is_staff` and `is_superuser`; ordinary public registration grants neither. A selected role controls the user's `is_superuser` flag, so use an administrator role that grants superuser access or leave the role empty when creating a superuser.
+To create the team administrator, run `docker compose run --rm web python manage.py createsuperuser` and enter an email, full name, phone number, and password. Sign in through the frontend login page to see all projects and tasks. User creation/management is not exposed in the frontend, API, or Django admin. Members register themselves through public registration, which grants no administrative privileges.
 
 `STT/serializers.py` includes the serializers required by all API views. Login accepts `email` and `password`. Registration accepts `email`, `full_name`, `phone_no`, `password`, and `password_confirm`; passwords are write-only and preserve whitespace. Public registration never accepts role or superuser privileges. Project and task serializers keep ownership, identifiers, and timestamps read-only.
 
@@ -56,6 +56,6 @@ With `DEBUG=True`, Django serves uploaded files publicly under `/media/`. Produc
 
 ## Frontend user management
 
-The frontend at http://localhost:3000/admin/users is the superuser's only workspace. It lists and creates team administrators (`is_staff=True`, `is_superuser=False`), and allows their profile/active-state configuration. It does not list ordinary members or create additional superusers. Superusers cannot access project/task APIs. Team administrators use the regular task workspace and can access all projects/tasks. Public members access only their own projects/tasks.
+The superuser is the team administrator and uses the regular frontend workspace, with access to all projects and tasks. User-management API routes are removed and the old `/admin/users` frontend URL redirects to the workspace. Ordinary members remain limited to projects they own. Django admin registers projects and tasks only, without user or group management.
 
 Tasks support optional `due_date` and authenticated updates at `PATCH /api/projects/<project_id>/tasks/<task_id>/`. Project ownership is checked before every task operation. `POST /api/auth/refresh/` exchanges a valid refresh token for a new access token.

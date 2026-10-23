@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from .models import Projects, Tasks, Users
+
 
 class LoginSerializer(serializers.Serializer):
     username = serializers.CharField()

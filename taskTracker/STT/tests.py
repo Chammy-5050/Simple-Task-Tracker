@@ -7,7 +7,8 @@ from django.test import TestCase, override_settings
 from django.urls import path
 from rest_framework.exceptions import AuthenticationFailed, NotAuthenticated, ValidationError
 from rest_framework_simplejwt.authentication import JWTAuthentication
-from rest_framework.test import APIRequestFactory
+from rest_framework.test import APIClient, APIRequestFactory
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import Projects, Roles, Tasks
 from .services import (
@@ -16,6 +17,38 @@ from .services import (
 )
 
 urlpatterns = [path("admin/", admin.site.urls)]
+
+
+@override_settings(ROOT_URLCONF="taskTracker.urls")
+class TeamAdminApiTests(TestCase):
+    def setUp(self):
+        self.admin = get_user_model().objects.create_superuser(email="team_admin@example.com")
+        self.member = get_user_model().objects.create_user(email="member@example.com")
+        self.project = Projects.objects.create(project_name="Member project", user_id=self.member)
+        self.task = Tasks.objects.create(task_name="Member task", project_id=self.project)
+        self.api = APIClient()
+        self.api.credentials(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.admin).access_token}")
+
+    def test_admin_sees_all_projects_and_tasks(self):
+        response = self.api.get("/api/projects/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(str(response.data[0]["project_id"]), str(self.project.pk))
+        response = self.api.get(f"/api/projects/{self.project.pk}/tasks/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(str(response.data[0]["task_id"]), str(self.task.pk))
+
+    def test_admin_cannot_list_create_or_configure_users(self):
+        for method, path in (("get", "/api/admin/users/"), ("post", "/api/admin/users/"), ("patch", f"/api/admin/users/{self.member.pk}/")):
+            with self.subTest(method=method):
+                response = getattr(self.api, method)(path, {"email": "forbidden@example.com"}, format="json")
+                self.assertEqual(response.status_code, 404)
+        self.assertFalse(get_user_model().objects.filter(email="forbidden@example.com").exists())
+
+    def test_normal_user_still_cannot_access_another_members_project(self):
+        other = get_user_model().objects.create_user(email="other_member@example.com")
+        self.api.credentials(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(other).access_token}")
+        self.assertEqual(self.api.get("/api/projects/").data, [])
+        self.assertEqual(self.api.get(f"/api/projects/{self.project.pk}/tasks/").status_code, 404)
 
 
 class RegistrationPasswordTests(TestCase):
@@ -141,7 +174,7 @@ class CustomUserTests(TestCase):
     def test_project_visibility(self):
         owner = self.create_user()
         other = self.create_user(email="other@example.com")
-        admin = self.create_user(email="admin@example.com", is_staff=True)
+        admin = self.create_user(email="admin@example.com", is_superuser=True)
         own = Projects.objects.create(project_name="Own", user_id=owner)
         another = Projects.objects.create(project_name="Another", user_id=other)
         self.assertEqual(list(get_projects(user=owner)), [own])
@@ -166,14 +199,16 @@ class AdminAccessTests(TestCase):
             full_name="Admin", phone_no="+255700000003",
         )
 
-    def test_superuser_can_open_admin_and_user_add_form(self):
+    def test_superuser_can_open_work_admin_but_not_user_add_form(self):
         self.assertTrue(self.client.login(
             email=self.admin.email, password="Admin-Password-927!"
         ))
         self.assertEqual(self.client.get("/admin/").status_code, 200)
-        self.assertEqual(self.client.get("/admin/STT/users/add/").status_code, 200)
+        self.assertEqual(self.client.get("/admin/STT/projects/").status_code, 200)
+        self.assertEqual(self.client.get("/admin/STT/tasks/").status_code, 200)
+        self.assertEqual(self.client.get("/admin/STT/users/add/").status_code, 404)
 
-    def test_admin_can_create_another_admin_and_log_the_action(self):
+    def test_admin_cannot_create_another_user(self):
         self.client.force_login(self.admin)
         response = self.client.post("/admin/STT/users/add/", {
             "email": "second_admin@example.com",
@@ -184,13 +219,8 @@ class AdminAccessTests(TestCase):
             "is_active": "on", "is_staff": "on", "is_superuser": "on",
             "_save": "Save",
         })
-        self.assertEqual(response.status_code, 302)
-        user = get_user_model().objects.get(email="second_admin@example.com")
-        self.assertTrue(user.is_staff)
-        self.assertFalse(user.is_superuser)
-        self.assertTrue(user.check_password("Another-Admin-Password-927!"))
-        from django.contrib.admin.models import LogEntry
-        self.assertTrue(LogEntry.objects.filter(user=self.admin, object_id=str(user.pk)).exists())
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(get_user_model().objects.filter(email="second_admin@example.com").exists())
 
     def test_publicly_registered_user_cannot_access_admin(self):
         user = register_user(
@@ -380,7 +410,7 @@ class ProjectTaskTests(TestCase):
         User = get_user_model()
         cls.owner = User.objects.create_user(email="task_owner@example.com")
         cls.other = User.objects.create_user(email="task_other@example.com")
-        cls.admin = User.objects.create_user(email="task_admin@example.com", is_staff=True)
+        cls.admin = User.objects.create_superuser(email="task_admin@example.com")
         cls.project = Projects.objects.create(project_name="Task project", user_id=cls.owner)
         cls.other_project = Projects.objects.create(project_name="Other project", user_id=cls.other)
         cls.task = Tasks.objects.create(task_name="Existing task", project_id=cls.project)

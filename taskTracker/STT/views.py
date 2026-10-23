@@ -1,9 +1,7 @@
 from rest_framework import status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.exceptions import ValidationError
-from django.db import transaction
-from django.shortcuts import get_object_or_404
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
@@ -11,15 +9,13 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from .serializers import (
     LoginSerializer, ProfilePictureSerializer, ProjectSerializer, RegisterSerializer,
     TaskSerializer,
-    AdminUserCreateSerializer, AdminUserSerializer, PasswordChangeSerializer,
-    RoleSerializer, UserProfileSerializer,
+    PasswordChangeSerializer, UserProfileSerializer,
 )
 from .services import (
     create_project, get_projects, login_user, register_user, update_profile_picture,
     create_project_task, get_project_tasks,
-    change_user_password, configure_user, update_task, update_user_profile,
+    change_user_password, update_task, update_user_profile,
 )
-from .models import Roles, Users
 
 
 class LoginView(APIView):
@@ -87,13 +83,6 @@ class RegisterView(APIView):
         )
 
 
-class IsWorkspaceUser(BasePermission):
-    message = "Superusers manage team administrators only."
-
-    def has_permission(self, request, view):
-        return bool(request.user and request.user.is_authenticated and not request.user.is_superuser)
-
-
 class ProjectListCreateView(APIView):
     """List visible projects or create a project owned by the signed-in user.
 
@@ -102,7 +91,7 @@ class ProjectListCreateView(APIView):
     """
 
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsWorkspaceUser]
+    permission_classes = [IsAuthenticated]
     http_method_names = ["get", "post", "head", "options"]
 
     def get(self, request):
@@ -172,7 +161,7 @@ class ProjectTaskListCreateView(APIView):
     """
 
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsWorkspaceUser]
+    permission_classes = [IsAuthenticated]
     http_method_names = ["get", "post", "head", "options"]
 
     def get(self, request, project_id):
@@ -198,7 +187,7 @@ class ProjectTaskListCreateView(APIView):
 
 
 class TaskUpdateView(APIView):
-    permission_classes = [IsAuthenticated, IsWorkspaceUser]
+    permission_classes = [IsAuthenticated]
 
     def patch(self, request, project_id, task_id):
         get_project_tasks(user=request.user, project_id=project_id)
@@ -214,48 +203,3 @@ class PasswordChangeView(APIView):
         serializer.is_valid(raise_exception=True)
         change_user_password(user=request.user, **serializer.validated_data)
         return Response({"detail": "Password updated."})
-
-
-class IsSuperuser(BasePermission):
-    def has_permission(self, request, view):
-        return bool(request.user and request.user.is_authenticated and request.user.is_active and request.user.is_superuser)
-
-
-class AdminUsersView(APIView):
-    permission_classes = [IsAuthenticated, IsSuperuser]
-
-    def get(self, request):
-        accounts = Users.objects.filter(is_staff=True, is_superuser=False).order_by("email")
-        return Response(AdminUserSerializer(accounts, many=True).data)
-
-    def post(self, request):
-        serializer = AdminUserCreateSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
-        with transaction.atomic():
-            user = register_user(**{key: data[key] for key in (
-                "email", "full_name", "phone_no", "password", "password_confirm"
-            )})
-            user.is_staff = True
-            user.is_superuser = False
-            user.is_active = data["is_active"]
-            user.save(update_fields=["is_staff", "is_superuser", "is_active"])
-        return Response(AdminUserSerializer(user).data, status=status.HTTP_201_CREATED)
-
-
-class AdminUserDetailView(APIView):
-    permission_classes = [IsAuthenticated, IsSuperuser]
-
-    def patch(self, request, user_id):
-        user = get_object_or_404(Users, pk=user_id, is_staff=True, is_superuser=False)
-        serializer = AdminUserSerializer(user, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        user = configure_user(admin=request.user, user_id=user_id, changes=serializer.validated_data)
-        return Response(AdminUserSerializer(user).data)
-
-
-class AdminRolesView(APIView):
-    permission_classes = [IsAuthenticated, IsSuperuser]
-
-    def get(self, request):
-        return Response(RoleSerializer(Roles.objects.order_by("role_name"), many=True).data)
