@@ -76,7 +76,11 @@ WSGI_APPLICATION = 'taskTracker.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-
+        'NAME': os.environ['POSTGRES_DB'],
+        'USER': os.environ['POSTGRES_USER'],
+        'PASSWORD': os.environ['POSTGRES_PASSWORD'],
+        'HOST': os.environ['POSTGRES_HOST'],
+        'PORT': os.environ['POSTGRES_PORT'],
     }
 }
 
@@ -121,13 +125,4 @@ STATIC_URL = 'static/'
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
-MAILERS = {
-    'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
-        'NAME': os.getenv('POSTGRES_DB', 'smalltask'),
-        'USER': os.getenv('POSTGRES_USER', 'tasktracker'),
-        'PASSWORD': os.getenv('POSTGRES_PASSWORD', 'task1234'),
-        'HOST': os.getenv('POSTGRES_HOST', 'db'),
-        'PORT': os.getenv('POSTGRES_PORT', '5433'),
-    },
-}
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
