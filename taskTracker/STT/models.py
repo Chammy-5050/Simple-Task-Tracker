@@ -4,6 +4,7 @@ import uuid
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
 from django.core.files.storage import default_storage
 from django.db import models
+from django.db import transaction
 
 TASK_STATUS = (
   ("pending", "Pending"),
@@ -41,33 +42,15 @@ class Roles(models.Model):
         db_table="roles"
 
     def __str__(self):
-        return self.role_name or str(self.id)
+        return self.role_name or str(self.pk)
 
     def save(self, *args, **kwargs):
-        previous = None
-        if self.pk:
-            previous = Roles.objects.filter(pk=self.pk).values(
-                "grants_staff_access",
-                "grants_superuser_access",
-            ).first()
-
-        super().save(*args, **kwargs)
-
-        if not previous:
-            return
-
-        flags_changed = (
-            bool(previous.get("grants_staff_access")) != bool(self.grants_staff_access)
-            or bool(previous.get("grants_superuser_access")) != bool(self.grants_superuser_access)
-        )
-        if not flags_changed:
-            return
-
-        Users.objects.filter(role_id=self.pk).update(
-            is_superuser=bool(self.grants_superuser_access),
-        )
-        if not bool(self.grants_staff_access or self.grants_superuser_access):
-            Users.objects.filter(role_id=self.pk).update(is_staff=False)
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            saved_role = Roles.objects.get(pk=self.pk)
+            Users.objects.filter(role_id=self.pk).update(
+                is_superuser=saved_role.grant_superuser_access,
+            )
 
 class UsersManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
@@ -80,13 +63,19 @@ class UsersManager(BaseUserManager):
         return user
 
     def create_superuser(self, email, password=None, **extra_fields):
+        extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
         extra_fields.setdefault("is_active", True)
 
-        if extra_fields.get("is_staff") is not True:
-            raise ValueError("Superuser must have is_staff=True.")
         if extra_fields.get("is_superuser") is not True:
             raise ValueError("Superuser must have is_superuser=True.")
+        if extra_fields.get("is_staff") is not True:
+            raise ValueError("Superuser must have is_staff=True.")
+        if extra_fields.get("is_active") is not True:
+            raise ValueError("Superuser must have is_active=True.")
+        role = extra_fields.get("role")
+        if role is not None and not role.grant_superuser_access:
+            raise ValueError("A superuser's role must grant superuser access.")
 
         return self.create_user(email, password, **extra_fields)
     
@@ -119,7 +108,7 @@ class Users(AbstractBaseUser):
         max_length=20,
         db_column="phone_no"
     )
-    profile_picture = models.FileField(
+    profile_picture = models.ImageField(
         upload_to="profile_photos/",
         blank=True,
         null=True,
@@ -131,61 +120,74 @@ class Users(AbstractBaseUser):
         help_text="Gain superuser privileges without being assigned"
     )
     is_active = models.BooleanField(default=True)
+    is_staff = models.BooleanField(default=False)
+    role = models.ForeignKey(
+        Roles,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        db_column="role_id",
+        related_name="users",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    objects = UsersManager()
+
+    USERNAME_FIELD = "email"
+    EMAIL_FIELD = "email"
+    REQUIRED_FIELDS = ["full_name", "phone_no"]
 
     class Meta:
         db_table = "users"
 
     def save(self, *args, **kwargs):
         old_photo_name = None
-        if self.pk:
+        picture_is_saved = (
+            kwargs.get("update_fields") is None
+            or "profile_picture" in kwargs["update_fields"]
+        )
+        if self.pk and picture_is_saved:
             try:
-                previous = Users.objects.only("profile_photo").get(pk=self.pk)
-                previous_name = previous.profile_photo.name if previous.profile_photo else None
-                current_name = self.profile_photo.name if self.profile_photo else None
+                previous = Users.objects.only("profile_picture").get(pk=self.pk)
+                previous_name = previous.profile_picture.name if previous.profile_picture else None
+                current_name = self.profile_picture.name if self.profile_picture else None
                 if previous_name and previous_name != current_name:
                     old_photo_name = previous_name
             except Users.DoesNotExist:
                 old_photo_name = None
 
         if self.role_id:
-            if getattr(self, "role", None) and self.role.pk == self.role_id:
-                role = self.role
-            else:
-                role = Roles.objects.only(
-                    "grants_staff_access",
-                    "grants_superuser_access",
-                ).filter(pk=self.role_id).first()
+            role = Roles.objects.only("grant_superuser_access").filter(pk=self.role_id).first()
             if role:
-                self.is_superuser = bool(role.grants_superuser_access)
-                if not bool(role.grants_staff_access or role.grants_superuser_access):
-                    self.is_staff = False
+                self.is_superuser = bool(role.grant_superuser_access)
+                if kwargs.get("update_fields") is not None:
+                    kwargs["update_fields"] = set(kwargs["update_fields"]) | {"is_superuser"}
 
         super().save(*args, **kwargs)
 
         if old_photo_name:
             storage = (
-                self.profile_photo.storage 
-                if self.profile_photo 
+                self.profile_picture.storage
+                if self.profile_picture
                 else default_storage
             )
-            try:
-                storage.delete(old_photo_name)
-            except Exception:
-                logger.exception(
-                    "Failed to delete old profile photo: %s",
-                    old_photo_name,
-                )
+            def delete_old_photo():
+                try:
+                    storage.delete(old_photo_name)
+                except Exception:
+                    logger.exception("Failed to delete old profile photo: %s", old_photo_name)
+
+            transaction.on_commit(delete_old_photo)
 
     def has_perm(self, perm, obj=None):
-        return bool(self.is_superuser)
+        return bool(self.is_active and self.is_superuser)
 
     def has_module_perms(self, app_label):
-        return bool(self.is_superuser)
+        return bool(self.is_active and self.is_superuser)
 
     def __str__(self):
-        return self.email or str(self.id)
+        return self.email or str(self.pk)
 
 class Projects(models.Model):
     project_id = models.UUIDField(
@@ -201,7 +203,7 @@ class Projects(models.Model):
         null=False,
         db_column="project_name",
     )
-    project_picture = models.FileField(
+    project_picture = models.ImageField(
         upload_to="profile_photos/",
         blank=True,
         null=True,
@@ -248,7 +250,7 @@ class Tasks(models.Model):
         db_column="description"
     )
     status = models.CharField(
-        max_lenth=20,
+        max_length=20,
         blank=False,
         null=False,
         choices=TASK_STATUS,
@@ -270,7 +272,7 @@ class Tasks(models.Model):
         constraints = [  # noqa: RUF012
             models.CheckConstraint(
                 condition=models.Q(
-                    status__in=TASK_STATUS
+                    status__in=[value for value, label in TASK_STATUS]
                 ),
                 name="task_status_valid"
             )
