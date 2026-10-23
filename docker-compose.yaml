@@ -13,6 +13,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_HOST: ${POSTGRES_HOST:?Set POSTGRES_HOST in .env}
       POSTGRES_PORT: ${POSTGRES_PORT:?Set POSTGRES_PORT in .env}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000}
     ports:
       - "127.0.0.1:8001:8000"
     volumes:

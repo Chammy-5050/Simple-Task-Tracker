@@ -38,6 +38,18 @@ The serializer implementation is owned by your colleague. `LoginSerializer` must
 
 Django uses its default `FileSystemStorage`, with `MEDIA_ROOT` set to `/app/media` in Docker and `MEDIA_URL` set to `/media/`. The existing `./taskTracker:/app` bind mount keeps uploads on your computer under `taskTracker/media/`, so recreating a container does not remove them. These files are excluded from Git and Docker builds. The database stores the relative file path, not the image bytes.
 
-Profile and project pictures use `ImageField` with Pillow. A user profile picture is optional during registration: your colleague should add `profile_picture = serializers.ImageField(required=False)` to `RegisterSerializer`. Send a picture and registration fields as `multipart/form-data`. The service validates the image, saves it through Django storage, and the response includes its URL. Existing users' pictures can also be edited in Django admin. Replaced profile pictures are removed after the database transaction commits.
+Profile and project pictures use `ImageField` with Pillow. Users set their own profile pictures through the authenticated endpoint below; public registration does not accept a profile picture. Replaced profile pictures are removed after the database transaction commits.
 
 With `DEBUG=True`, Django serves uploaded files publicly under `/media/`. Production hosting must serve media separately or use a storage backend such as object storage; the development media route does not run with `DEBUG=False`.
+
+## Creating projects
+
+`POST /api/projects/` requires an access token in `Authorization: Bearer <access_token>`. Supply `project_name` and optional `description` as JSON. The service assigns ownership from the signed-in user and returns HTTP 201 with the serialized project. A duplicate project name returns a field validation error. The model currently requires project names to be unique across all users.
+
+Your colleague's `ProjectSerializer` must accept `project_name` and optional `description`, with `user_id`, `project_id`, and timestamps read-only. The endpoint never accepts ownership from the client. Picture uploads are not part of this endpoint.
+
+## Updating your profile picture
+
+`PATCH /api/users/me/` requires `Authorization: Bearer <access_token>` and a `multipart/form-data` file field named `profile_picture`. The endpoint always selects the authenticated user; request-supplied user IDs or privilege fields cannot change another account. A valid upload returns HTTP 200 with `user_id` and the picture's absolute URL. Missing or invalid images return a field validation error.
+
+Your colleague should implement `ProfilePictureSerializer` with a required `profile_picture = serializers.ImageField()` field. The view does not use `partial=True`, so an empty PATCH cannot silently skip the required picture. No other profile fields are updated by this endpoint. HTTP verification remains pending until the serializer module exists.
