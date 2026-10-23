@@ -1,11 +1,18 @@
 from rest_framework import status
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from .serializers import LoginSerializer, ProjectSerializer, RegisterSerializer
-from .services import get_projects, login_user, register_user
+from .serializers import (
+    LoginSerializer, ProfilePictureSerializer, ProjectSerializer, RegisterSerializer,
+    TaskSerializer,
+)
+from .services import (
+    create_project, get_projects, login_user, register_user, update_profile_picture,
+    create_project_task, get_project_tasks,
+)
 
 
 class LoginView(APIView):
@@ -37,7 +44,7 @@ class LoginView(APIView):
 
 
 class RegisterView(APIView):
-    """Accept registration fields and an optional multipart profile_picture.
+    """Accept email, full_name, phone_no, password, and password_confirm.
 
     RegisterSerializer must preserve passwords exactly and mark both password
     fields write_only=True; neither field should trim whitespace.
@@ -57,7 +64,6 @@ class RegisterView(APIView):
             phone_no=serializer.validated_data["phone_no"],
             password=serializer.validated_data["password"],
             password_confirm=serializer.validated_data.get("password_confirm"),
-            profile_picture=serializer.validated_data.get("profile_picture"),
         )
 
         return Response(
@@ -65,21 +71,21 @@ class RegisterView(APIView):
                 "user_id": user.pk,
                 "full_name": user.full_name,
                 "email": user.email,
-                "profile_picture": (
-                    request.build_absolute_uri(user.profile_picture.url)
-                    if user.profile_picture else None
-                ),
             },
             status=status.HTTP_201_CREATED,
         )
 
 
-class ProjectListView(APIView):
-    """Retrieve the signed-in user's projects, or all projects for admins."""
+class ProjectListCreateView(APIView):
+    """List visible projects or create a project owned by the signed-in user.
+
+    ProjectSerializer accepts project_name and optional description. Ownership,
+    project_id, and timestamps must be read-only serializer fields.
+    """
 
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
-    http_method_names = ["get", "head", "options"]
+    http_method_names = ["get", "post", "head", "options"]
 
     def get(self, request):
         projects = get_projects(user=request.user)
@@ -87,3 +93,76 @@ class ProjectListView(APIView):
             projects, many=True, context={"request": request}
         )
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        serializer = ProjectSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        project = create_project(
+            user=request.user,
+            project_name=serializer.validated_data["project_name"],
+            description=serializer.validated_data.get("description", ""),
+        )
+        output = ProjectSerializer(project, context={"request": request})
+        return Response(output.data, status=status.HTTP_201_CREATED)
+
+
+class MyProfilePictureView(APIView):
+    """PATCH /api/users/me/ accepts a multipart profile_picture image.
+
+    ProfilePictureSerializer must require an ImageField named profile_picture.
+    Account IDs and privilege fields are never used to select or update a user.
+    """
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+    http_method_names = ["patch", "options"]
+
+    def patch(self, request):
+        serializer = ProfilePictureSerializer(
+            data=request.data, context={"request": request}
+        )
+        serializer.is_valid(raise_exception=True)
+        user = update_profile_picture(
+            user=request.user,
+            profile_picture=serializer.validated_data.get("profile_picture"),
+        )
+        return Response(
+            {
+                "user_id": user.pk,
+                "profile_picture": request.build_absolute_uri(user.profile_picture.url),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ProjectTaskListCreateView(APIView):
+    """List or create tasks in an authorized project.
+
+    TaskSerializer accepts task_name, optional description, and optional status.
+    task_id, project_id, created_at, and updated_at must be read-only.
+    """
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "post", "head", "options"]
+
+    def get(self, request, project_id):
+        tasks = get_project_tasks(user=request.user, project_id=project_id)
+        serializer = TaskSerializer(tasks, many=True, context={"request": request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request, project_id):
+        # Check project access before validating or disclosing task-name conflicts.
+        get_project_tasks(user=request.user, project_id=project_id)
+        serializer = TaskSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        task = create_project_task(
+            user=request.user,
+            project_id=project_id,
+            task_name=serializer.validated_data["task_name"],
+            description=serializer.validated_data.get("description", ""),
+            status=serializer.validated_data.get("status", "pending"),
+        )
+        output = TaskSerializer(task, context={"request": request})
+        return Response(output.data, status=status.HTTP_201_CREATED)

@@ -3,10 +3,11 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.forms import ImageField
+from django.shortcuts import get_object_or_404
 from rest_framework.exceptions import AuthenticationFailed, NotAuthenticated, ValidationError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import Projects
+from .models import Projects, Tasks
 
 
 def login_user(*, request, email, password):
@@ -25,9 +26,7 @@ def login_user(*, request, email, password):
     }
 
 
-def register_user(
-    *, email, full_name, phone_no, password, password_confirm, profile_picture=None
-):
+def register_user(*, email, full_name, phone_no, password, password_confirm):
     """Create a normal user with a validated, hashed password."""
     if not isinstance(password, str) or not password:
         raise ValidationError({"password": ["A password is required."]})
@@ -52,12 +51,6 @@ def register_user(
     except DjangoValidationError as exc:
         raise ValidationError({"password": exc.messages}) from exc
 
-    if profile_picture is not None:
-        try:
-            user.profile_picture = ImageField().clean(profile_picture)
-        except DjangoValidationError as exc:
-            raise ValidationError({"profile_picture": exc.messages}) from exc
-
     user.set_password(password)
     try:
         user.full_clean(validate_unique=False)
@@ -79,7 +72,7 @@ def register_user(
 
 def get_projects(*, user):
     """Admins see all projects; normal users see only projects they own."""
-    if not user.is_authenticated or not user.is_active:
+    if user is None or not user.is_authenticated or not user.is_active:
         raise NotAuthenticated()
 
     projects = Projects.objects.all()
@@ -87,3 +80,88 @@ def get_projects(*, user):
         projects = projects.filter(user_id=user.pk)
 
     return projects.order_by("-created_at", "project_id")
+
+
+def create_project(*, user, project_name, description=""):
+    """Create a project owned by the authenticated user."""
+    if user is None or not user.is_authenticated or not user.is_active:
+        raise NotAuthenticated()
+
+    project = Projects(
+        project_name=project_name,
+        description=description,
+        user_id=user,
+    )
+    try:
+        project.full_clean(validate_unique=False)
+    except DjangoValidationError as exc:
+        raise ValidationError(exc.message_dict) from exc
+
+    try:
+        with transaction.atomic():
+            project.save(force_insert=True)
+    except IntegrityError as exc:
+        if Projects.objects.filter(project_name=project.project_name).exists():
+            raise ValidationError(
+                {"project_name": ["A project with this name already exists."]}
+            ) from exc
+        raise
+
+    return project
+
+
+def update_profile_picture(*, user, profile_picture):
+    """Validate an image and replace only the authenticated user's picture."""
+    if user is None or not user.is_authenticated or not user.is_active:
+        raise NotAuthenticated()
+
+    try:
+        picture = ImageField().clean(profile_picture)
+    except DjangoValidationError as exc:
+        raise ValidationError({"profile_picture": exc.messages}) from exc
+
+    User = get_user_model()
+    with transaction.atomic():
+        try:
+            account = User.objects.select_for_update().get(pk=user.pk, is_active=True)
+        except User.DoesNotExist as exc:
+            raise NotAuthenticated() from exc
+        account.profile_picture = picture
+        account.save(update_fields=["profile_picture", "updated_at"])
+
+    return account
+
+
+def get_project_tasks(*, user, project_id):
+    """List tasks only after verifying access to the containing project."""
+    project = get_object_or_404(get_projects(user=user), pk=project_id)
+    return Tasks.objects.filter(project_id=project).order_by("created_at", "task_id")
+
+
+def create_project_task(
+    *, user, project_id, task_name, description="", status="pending"
+):
+    """Create a task in the authorized project selected by the URL."""
+    project = get_object_or_404(get_projects(user=user), pk=project_id)
+    task = Tasks(
+        project_id=project,
+        task_name=task_name,
+        description=description,
+        status=status,
+    )
+    try:
+        task.full_clean(validate_unique=False)
+    except DjangoValidationError as exc:
+        raise ValidationError(exc.message_dict) from exc
+
+    try:
+        with transaction.atomic():
+            task.save(force_insert=True)
+    except IntegrityError as exc:
+        if Tasks.objects.filter(task_name=task.task_name).exists():
+            raise ValidationError(
+                {"task_name": ["A task with this name already exists."]}
+            ) from exc
+        raise
+
+    return task
