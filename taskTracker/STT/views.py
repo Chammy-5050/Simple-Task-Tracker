@@ -1,14 +1,15 @@
 from rest_framework import status
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from .serializers import LoginSerializer, RegisterSerializer
-from .services import login_user, register_user
+from .serializers import LoginSerializer, ProjectSerializer, RegisterSerializer
+from .services import get_projects, login_user, register_user
 
 
 class LoginView(APIView):
-    """POST /api/auth/login/ with a username and password.
+    """POST /api/auth/login/ with an email and password.
 
     LoginSerializer validates the input fields. The login_user service must
     verify credentials, reject inactive users, and return access/refresh tokens.
@@ -25,7 +26,7 @@ class LoginView(APIView):
 
         tokens = login_user(
             request=request,
-            username=serializer.validated_data["username"],
+            email=serializer.validated_data["email"],
             password=serializer.validated_data["password"],
         )
 
@@ -36,7 +37,7 @@ class LoginView(APIView):
 
 
 class RegisterView(APIView):
-    """Accept username, password, password_confirm, and optional email.
+    """Accept registration fields and an optional multipart profile_picture.
 
     RegisterSerializer must preserve passwords exactly and mark both password
     fields write_only=True; neither field should trim whitespace.
@@ -51,13 +52,38 @@ class RegisterView(APIView):
         serializer.is_valid(raise_exception=True)
 
         user = register_user(
-            username=serializer.validated_data["username"],
+            email=serializer.validated_data["email"],
+            full_name=serializer.validated_data["full_name"],
+            phone_no=serializer.validated_data["phone_no"],
             password=serializer.validated_data["password"],
             password_confirm=serializer.validated_data.get("password_confirm"),
-            email=serializer.validated_data.get("email", ""),
+            profile_picture=serializer.validated_data.get("profile_picture"),
         )
 
         return Response(
-            {"id": user.pk, "username": user.username, "email": user.email},
+            {
+                "user_id": user.pk,
+                "full_name": user.full_name,
+                "email": user.email,
+                "profile_picture": (
+                    request.build_absolute_uri(user.profile_picture.url)
+                    if user.profile_picture else None
+                ),
+            },
             status=status.HTTP_201_CREATED,
         )
+
+
+class ProjectListView(APIView):
+    """Retrieve the signed-in user's projects, or all projects for admins."""
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "head", "options"]
+
+    def get(self, request):
+        projects = get_projects(user=request.user)
+        serializer = ProjectSerializer(
+            projects, many=True, context={"request": request}
+        )
+        return Response(serializer.data, status=status.HTTP_200_OK)
