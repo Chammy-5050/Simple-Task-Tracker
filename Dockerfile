@@ -11,6 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt \
     && useradd --create-home appuser
 
 COPY --chown=appuser:appuser . .
+RUN mkdir -p /app/media && chown appuser:appuser /app/media
 USER appuser
 
 EXPOSE 8000
