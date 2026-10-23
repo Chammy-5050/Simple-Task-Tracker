@@ -14,7 +14,7 @@ services:
       POSTGRES_HOST: ${POSTGRES_HOST:?Set POSTGRES_HOST in .env}
       POSTGRES_PORT: ${POSTGRES_PORT:?Set POSTGRES_PORT in .env}
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:8001:8000"
     volumes:
       - ./taskTracker:/app
     depends_on:
