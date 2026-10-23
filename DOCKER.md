@@ -11,7 +11,7 @@ docker compose -f docker-compose.yaml up --build -d
 docker compose -f docker-compose.yaml logs -f web
 ```
 
-Open http://localhost:8000/. Django's initial welcome page appears until application URLs are added. Database migrations run before the development server starts. Source code is mounted into the container for automatic reloads.
+Open http://localhost:8001/. Port 8000 is already used by another local Docker app, so this project exposes Django on port 8001. Django's initial welcome page appears until application URLs are added. Database migrations run before the development server starts. Source code is mounted into the container for automatic reloads.
 
 With your current `.env`, the application connects to database `smalltask` as user `tasktracker` at `db:5433`. PostgreSQL listens on `POSTGRES_PORT` inside Docker. The Compose mapping exposes it on `localhost:5434` for connections from your computer.
 
