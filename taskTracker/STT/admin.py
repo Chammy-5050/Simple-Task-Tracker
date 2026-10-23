@@ -55,7 +55,35 @@ if admin.site.is_registered(Users):
     admin.site.unregister(Users)
 if admin.site.is_registered(Group):
     admin.site.unregister(Group)
-admin.site.register(Projects)
-admin.site.register(Tasks)
+class OwnedWorkAdmin(admin.ModelAdmin):
+    """Team admins may view all work, but may only modify their own."""
+    actions = None
+
+    def _owns(self, request, obj):
+        owner_id = obj.user_id_id if isinstance(obj, Projects) else obj.project_id.user_id_id
+        return owner_id == request.user.pk
+
+    def has_change_permission(self, request, obj=None):
+        return super().has_change_permission(request, obj) and (obj is None or self._owns(request, obj))
+
+    def has_delete_permission(self, request, obj=None):
+        return super().has_delete_permission(request, obj) and (obj is None or self._owns(request, obj))
+
+    def get_readonly_fields(self, request, obj=None):
+        return ("user_id",) if self.model is Projects else ()
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if self.model is Tasks and db_field.name == "project_id":
+            kwargs["queryset"] = Projects.objects.filter(user_id=request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def save_model(self, request, obj, form, change):
+        if isinstance(obj, Projects) and not change:
+            obj.user_id = request.user
+        super().save_model(request, obj, form, change)
+
+
+admin.site.register(Projects, OwnedWorkAdmin)
+admin.site.register(Tasks, OwnedWorkAdmin)
 
 

@@ -17,6 +17,7 @@ env/
 *.log
 media/
 staticfiles/
+.backups/
 
 # Test and tool caches
 .pytest_cache/

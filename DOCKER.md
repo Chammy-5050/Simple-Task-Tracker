@@ -59,3 +59,18 @@ With `DEBUG=True`, Django serves uploaded files publicly under `/media/`. Produc
 The superuser is the team administrator and uses the regular frontend workspace, with access to all projects and tasks. User-management API routes are removed and the old `/admin/users` frontend URL redirects to the workspace. Ordinary members remain limited to projects they own. Django admin registers projects and tasks only, without user or group management.
 
 Tasks support optional `due_date` and authenticated updates at `PATCH /api/projects/<project_id>/tasks/<task_id>/`. Project ownership is checked before every task operation. `POST /api/auth/refresh/` exchanges a valid refresh token for a new access token.
+
+## Database schemas
+
+Migration `STT.0006_separate_django_tables` separates PostgreSQL tables:
+
+- `public`: `users`, `roles`, `projects`, `tasks`.
+- `django_internal`: Django permissions, groups, sessions, admin history, content types, and migration history.
+
+The backend connection searches `public,django_internal`, so Django can still resolve its supporting tables. Keep this search path when changing database settings. The migration moves existing tables and their data; it does not recreate the database or remove accounts. It also runs on a new database through the normal `docker compose up` migration command.
+
+Refresh DBeaver's Schemas tree after applying migrations. Application tables appear under `public` without individual table filters. The internal schema remains visible to database accounts that can access it; this is organization, not a permission boundary.
+
+Rollback with `docker compose exec web python manage.py migrate STT 0005_tasks_due_date`. This returns the supporting tables to `public` and leaves the empty schema in place. Future framework migrations that introduce additional tables should include a follow-up schema move; existing table alterations resolve through the search path.
+
+Local database backups belong in the Git-ignored `.backups/` directory and must not be committed.

@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.forms import ImageField
 from django.shortcuts import get_object_or_404
-from rest_framework.exceptions import AuthenticationFailed, NotAuthenticated, ValidationError
+from rest_framework.exceptions import AuthenticationFailed, NotAuthenticated, PermissionDenied, ValidationError
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import Projects, Tasks
@@ -75,7 +75,7 @@ def get_projects(*, user):
     if user is None or not user.is_authenticated or not user.is_active:
         raise NotAuthenticated()
 
-    projects = Projects.objects.all()
+    projects = Projects.objects.select_related("user_id")
     if not user.is_superuser:
         projects = projects.filter(user_id=user.pk)
 
@@ -135,7 +135,7 @@ def update_profile_picture(*, user, profile_picture):
 def get_project_tasks(*, user, project_id):
     """List tasks only after verifying access to the containing project."""
     project = get_object_or_404(get_projects(user=user), pk=project_id)
-    return Tasks.objects.filter(project_id=project).order_by("created_at", "task_id")
+    return Tasks.objects.filter(project_id=project).select_related("project_id__user_id").order_by("created_at", "task_id")
 
 
 def create_project_task(
@@ -143,6 +143,8 @@ def create_project_task(
 ):
     """Create a task in the authorized project selected by the URL."""
     project = get_object_or_404(get_projects(user=user), pk=project_id)
+    if project.user_id_id != user.pk:
+        raise PermissionDenied("Other users' projects are read-only.")
     task = Tasks(
         project_id=project,
         task_name=task_name,
@@ -170,6 +172,8 @@ def create_project_task(
 
 def update_task(*, user, project_id, task_id, changes):
     project = get_object_or_404(get_projects(user=user), pk=project_id)
+    if project.user_id_id != user.pk:
+        raise PermissionDenied("Only the task owner can update this task.")
     task = get_object_or_404(Tasks, pk=task_id, project_id=project)
     for field in ("task_name", "description", "status", "due_date"):
         if field in changes:

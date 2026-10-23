@@ -5,7 +5,7 @@ from django.db import IntegrityError, transaction
 from django.http import Http404
 from django.test import TestCase, override_settings
 from django.urls import path
-from rest_framework.exceptions import AuthenticationFailed, NotAuthenticated, ValidationError
+from rest_framework.exceptions import AuthenticationFailed, NotAuthenticated, PermissionDenied, ValidationError
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.test import APIClient, APIRequestFactory
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -443,14 +443,13 @@ class ProjectTaskTests(TestCase):
         self.assertEqual(task.status, "pending")
         self.assertEqual(task.description, "")
 
-    def test_admin_can_create_task_in_another_users_project(self):
-        task = create_project_task(
-            user=self.admin, project_id=self.other_project.pk,
-            task_name="Admin task", description="Details", status="in_progress",
-        )
-        self.assertEqual(task.project_id, self.other_project)
-        self.assertEqual(task.status, "in_progress")
-        self.assertEqual(task.description, "Details")
+    def test_admin_cannot_create_task_in_another_users_project(self):
+        with self.assertRaises(PermissionDenied):
+            create_project_task(
+                user=self.admin, project_id=self.other_project.pk,
+                task_name="Admin task", description="Details", status="in_progress",
+            )
+        self.assertFalse(Tasks.objects.filter(task_name="Admin task").exists())
 
     def test_invalid_fields_and_duplicates_return_validation_errors(self):
         for name, status in (("", "pending"), ("x" * 256, "pending"), ("Valid", "invalid"), ("Existing task", "pending")):
