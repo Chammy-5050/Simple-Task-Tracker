@@ -59,6 +59,11 @@ class OwnedWorkAdmin(admin.ModelAdmin):
     """Team admins may view all work, but may only modify their own."""
     actions = None
 
+    def has_add_permission(self, request):
+        if self.model is Projects and request.user.is_superuser:
+            return False
+        return super().has_add_permission(request)
+
     def _owns(self, request, obj):
         owner_id = obj.user_id_id if isinstance(obj, Projects) else obj.project_id.user_id_id
         return owner_id == request.user.pk

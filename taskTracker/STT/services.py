@@ -86,6 +86,8 @@ def create_project(*, user, project_name, description=""):
     """Create a project owned by the authenticated user."""
     if user is None or not user.is_authenticated or not user.is_active:
         raise NotAuthenticated()
+    if user.is_superuser:
+        raise PermissionDenied("Administrators can view projects but cannot create them.")
 
     project = Projects(
         project_name=project_name,
