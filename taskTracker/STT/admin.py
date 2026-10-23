@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.forms import UserChangeForm, UserCreationForm
 
-from .models import Projects, Roles, Tasks, Users
+from .models import Users
 
 
 class AdminUserCreationForm(UserCreationForm):
@@ -19,6 +19,15 @@ class AdminUserChangeForm(UserChangeForm):
 
 @admin.register(Users)
 class UsersAdmin(UserAdmin):
+    def get_queryset(self, request):
+        return super().get_queryset(request).filter(is_staff=True, is_superuser=False)
+
+    def save_model(self, request, obj, form, change):
+        obj.is_staff = True
+        obj.is_superuser = False
+        obj.role = None
+        super().save_model(request, obj, form, change)
+
     form = AdminUserChangeForm
     add_form = AdminUserCreationForm
     list_display = ("email", "full_name", "is_active", "is_staff", "is_superuser")
@@ -30,17 +39,14 @@ class UsersAdmin(UserAdmin):
     fieldsets = (
         (None, {"fields": ("email", "password")}),
         ("Profile", {"fields": ("full_name", "phone_no", "profile_picture")}),
-        ("Access", {"fields": ("role", "is_active", "is_staff", "is_superuser")}),
+        ("Access", {"fields": ("is_active",)}),
         ("Dates", {"fields": ("user_id", "last_login", "created_at", "updated_at")}),
     )
     add_fieldsets = (
         (None, {"classes": ("wide",), "fields": (
             "email", "full_name", "phone_no", "password1", "password2",
-            "is_active", "is_staff", "is_superuser", "role",
+            "is_active",
         )}),
     )
 
 
-admin.site.register(Roles)
-admin.site.register(Projects)
-admin.site.register(Tasks)

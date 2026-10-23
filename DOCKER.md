@@ -30,9 +30,9 @@ This configuration uses Django's development server and the project's developmen
 
 The STT migration creates `roles`, `users`, `projects`, and `tasks`. Authentication uses `STT.Users`, with email as the login identifier and `user_id` as the JWT user identifier. Django admin is enabled at `/admin/` and uses sessions; the API uses JWTs. Django's supporting tables remain in use. Accounts in the old `auth_user` table are not automatically transferred into `users`.
 
-To create the first administrator, run `docker compose run --rm web python manage.py createsuperuser --skip-checks` and enter an email, full name, phone number, and password. The `--skip-checks` option permits this command while your colleague's serializers are still missing. Once those files are ready and the server is running, sign in at http://localhost:8000/admin/ to create and manage additional administrators. Admin accounts need both `is_staff` and `is_superuser`; ordinary public registration grants neither. A selected role controls the user's `is_superuser` flag, so use an administrator role that grants superuser access or leave the role empty when creating a superuser.
+To create the first administrator, run `docker compose run --rm web python manage.py createsuperuser` and enter an email, full name, phone number, and password. Sign in at http://localhost:8000/admin/ to create and manage additional administrators. Admin accounts need both `is_staff` and `is_superuser`; ordinary public registration grants neither. A selected role controls the user's `is_superuser` flag, so use an administrator role that grants superuser access or leave the role empty when creating a superuser.
 
-The serializer implementation is owned by your colleague. `LoginSerializer` must supply `email` and `password`. `RegisterSerializer` must supply `email`, `full_name`, `phone_no`, `password`, and `password_confirm`; passwords must be write-only and must not trim whitespace. Public registration never accepts role or superuser privileges. `ProjectSerializer` represents the existing `Projects` fields. Until these serializers exist, URL loading and normal server startup will fail.
+`STT/serializers.py` includes the serializers required by all API views. Login accepts `email` and `password`. Registration accepts `email`, `full_name`, `phone_no`, `password`, and `password_confirm`; passwords are write-only and preserve whitespace. Public registration never accepts role or superuser privileges. Project and task serializers keep ownership, identifiers, and timestamps read-only.
 
 ## Uploaded pictures
 
@@ -46,10 +46,16 @@ With `DEBUG=True`, Django serves uploaded files publicly under `/media/`. Produc
 
 `POST /api/projects/` requires an access token in `Authorization: Bearer <access_token>`. Supply `project_name` and optional `description` as JSON. The service assigns ownership from the signed-in user and returns HTTP 201 with the serialized project. A duplicate project name returns a field validation error. The model currently requires project names to be unique across all users.
 
-Your colleague's `ProjectSerializer` must accept `project_name` and optional `description`, with `user_id`, `project_id`, and timestamps read-only. The endpoint never accepts ownership from the client. Picture uploads are not part of this endpoint.
+`ProjectSerializer` accepts `project_name` and optional `description`, with `user_id`, `project_id`, and timestamps read-only. The endpoint never accepts ownership from the client. Picture uploads are not part of this endpoint.
 
 ## Updating your profile picture
 
-`PATCH /api/users/me/` requires `Authorization: Bearer <access_token>` and a `multipart/form-data` file field named `profile_picture`. The endpoint always selects the authenticated user; request-supplied user IDs or privilege fields cannot change another account. A valid upload returns HTTP 200 with `user_id` and the picture's absolute URL. Missing or invalid images return a field validation error.
+`GET /api/users/me/` retrieves the signed-in user's profile. `PATCH /api/users/me/` accepts either JSON profile fields (`full_name`, `email`, `phone_no`) or a multipart `profile_picture` upload. The endpoint always selects the authenticated user; request-supplied user IDs or privilege fields cannot change another account. A valid upload returns HTTP 200 with `user_id` and the picture's absolute URL. Invalid images and empty patches return validation errors.
 
-Your colleague should implement `ProfilePictureSerializer` with a required `profile_picture = serializers.ImageField()` field. The view does not use `partial=True`, so an empty PATCH cannot silently skip the required picture. No other profile fields are updated by this endpoint. HTTP verification remains pending until the serializer module exists.
+`POST /api/users/me/password/` requires the current password, a new `password`, and matching `password_confirm`. The frontend signs out after a successful password change.
+
+## Frontend user management
+
+The frontend at http://localhost:3000/admin/users is the superuser's only workspace. It lists and creates team administrators (`is_staff=True`, `is_superuser=False`), and allows their profile/active-state configuration. It does not list ordinary members or create additional superusers. Superusers cannot access project/task APIs. Team administrators use the regular task workspace and can access all projects/tasks. Public members access only their own projects/tasks.
+
+Tasks support optional `due_date` and authenticated updates at `PATCH /api/projects/<project_id>/tasks/<task_id>/`. Project ownership is checked before every task operation. `POST /api/auth/refresh/` exchanges a valid refresh token for a new access token.

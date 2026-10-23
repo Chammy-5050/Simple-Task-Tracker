@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.forms import ImageField
 from django.shortcuts import get_object_or_404
-from rest_framework.exceptions import AuthenticationFailed, NotAuthenticated, ValidationError
+from rest_framework.exceptions import AuthenticationFailed, NotAuthenticated, PermissionDenied, ValidationError
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import Projects, Tasks
@@ -71,12 +71,14 @@ def register_user(*, email, full_name, phone_no, password, password_confirm):
 
 
 def get_projects(*, user):
-    """Admins see all projects; normal users see only projects they own."""
+    """Team admins see projects; members see their own; superusers have no workspace."""
     if user is None or not user.is_authenticated or not user.is_active:
         raise NotAuthenticated()
+    if user.is_superuser:
+        raise PermissionDenied("Superusers manage team administrators only.")
 
     projects = Projects.objects.all()
-    if not user.is_superuser:
+    if not user.is_staff:
         projects = projects.filter(user_id=user.pk)
 
     return projects.order_by("-created_at", "project_id")
@@ -86,6 +88,8 @@ def create_project(*, user, project_name, description=""):
     """Create a project owned by the authenticated user."""
     if user is None or not user.is_authenticated or not user.is_active:
         raise NotAuthenticated()
+    if user.is_superuser:
+        raise PermissionDenied("Superusers manage team administrators only.")
 
     project = Projects(
         project_name=project_name,
@@ -139,7 +143,7 @@ def get_project_tasks(*, user, project_id):
 
 
 def create_project_task(
-    *, user, project_id, task_name, description="", status="pending"
+    *, user, project_id, task_name, description="", status="pending", due_date=None
 ):
     """Create a task in the authorized project selected by the URL."""
     project = get_object_or_404(get_projects(user=user), pk=project_id)
@@ -148,6 +152,7 @@ def create_project_task(
         task_name=task_name,
         description=description,
         status=status,
+        due_date=due_date,
     )
     try:
         task.full_clean(validate_unique=False)
@@ -165,3 +170,71 @@ def create_project_task(
         raise
 
     return task
+
+
+def update_task(*, user, project_id, task_id, changes):
+    project = get_object_or_404(get_projects(user=user), pk=project_id)
+    task = get_object_or_404(Tasks, pk=task_id, project_id=project)
+    for field in ("task_name", "description", "status", "due_date"):
+        if field in changes:
+            setattr(task, field, changes[field])
+    try:
+        task.full_clean()
+    except DjangoValidationError as exc:
+        raise ValidationError(exc.message_dict) from exc
+    with transaction.atomic():
+        task.save()
+    return task
+
+
+def update_user_profile(*, user, changes):
+    if user is None or not user.is_authenticated or not user.is_active:
+        raise NotAuthenticated()
+    for field in ("full_name", "email", "phone_no"):
+        if field in changes:
+            setattr(user, field, changes[field])
+    user.email = get_user_model().objects.normalize_email(user.email)
+    try:
+        user.full_clean()
+    except DjangoValidationError as exc:
+        raise ValidationError(exc.message_dict) from exc
+    user.save(update_fields=["full_name", "email", "phone_no", "updated_at"])
+    return user
+
+
+def change_user_password(*, user, current_password, password, password_confirm):
+    if not user.check_password(current_password):
+        raise ValidationError({"current_password": ["Current password is incorrect."]})
+    if password != password_confirm:
+        raise ValidationError({"password_confirm": ["Passwords do not match."]})
+    try:
+        validate_password(password, user=user)
+    except DjangoValidationError as exc:
+        raise ValidationError({"password": exc.messages}) from exc
+    user.set_password(password)
+    user.save(update_fields=["password", "updated_at"])
+
+
+def configure_user(*, admin, user_id, changes):
+    if not admin.is_active or not admin.is_superuser:
+        raise PermissionDenied()
+    User = get_user_model()
+    with transaction.atomic():
+        account = get_object_or_404(
+            User.objects.select_for_update(), pk=user_id, is_staff=True, is_superuser=False
+        )
+        for field in ("full_name", "email", "phone_no", "is_active"):
+            if field in changes:
+                setattr(account, field, changes[field])
+        if account.role_id:
+            account.is_superuser = account.role.grant_superuser_access
+        if account.pk == admin.pk and not (
+            account.is_active and account.is_staff and account.is_superuser
+        ):
+            raise ValidationError({"detail": "You cannot remove your own administrator access."})
+        try:
+            account.full_clean()
+        except DjangoValidationError as exc:
+            raise ValidationError(exc.message_dict) from exc
+        account.save()
+    return account

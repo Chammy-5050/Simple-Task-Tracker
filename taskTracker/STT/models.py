@@ -230,6 +230,7 @@ class Projects(models.Model):
 
 
 class Tasks(models.Model):
+    due_date = models.DateField(blank=True, null=True)
     task_id= models.UUIDField(
         primary_key=True, 
         default=uuid.uuid4, 

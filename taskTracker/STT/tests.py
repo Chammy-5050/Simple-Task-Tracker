@@ -141,7 +141,7 @@ class CustomUserTests(TestCase):
     def test_project_visibility(self):
         owner = self.create_user()
         other = self.create_user(email="other@example.com")
-        admin = self.create_user(email="admin@example.com", is_superuser=True)
+        admin = self.create_user(email="admin@example.com", is_staff=True)
         own = Projects.objects.create(project_name="Own", user_id=owner)
         another = Projects.objects.create(project_name="Another", user_id=other)
         self.assertEqual(list(get_projects(user=owner)), [own])
@@ -186,7 +186,8 @@ class AdminAccessTests(TestCase):
         })
         self.assertEqual(response.status_code, 302)
         user = get_user_model().objects.get(email="second_admin@example.com")
-        self.assertTrue(user.is_staff and user.is_superuser)
+        self.assertTrue(user.is_staff)
+        self.assertFalse(user.is_superuser)
         self.assertTrue(user.check_password("Another-Admin-Password-927!"))
         from django.contrib.admin.models import LogEntry
         self.assertTrue(LogEntry.objects.filter(user=self.admin, object_id=str(user.pk)).exists())
@@ -379,7 +380,7 @@ class ProjectTaskTests(TestCase):
         User = get_user_model()
         cls.owner = User.objects.create_user(email="task_owner@example.com")
         cls.other = User.objects.create_user(email="task_other@example.com")
-        cls.admin = User.objects.create_superuser(email="task_admin@example.com")
+        cls.admin = User.objects.create_user(email="task_admin@example.com", is_staff=True)
         cls.project = Projects.objects.create(project_name="Task project", user_id=cls.owner)
         cls.other_project = Projects.objects.create(project_name="Other project", user_id=cls.other)
         cls.task = Tasks.objects.create(task_name="Existing task", project_id=cls.project)
