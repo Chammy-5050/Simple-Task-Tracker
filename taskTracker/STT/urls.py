@@ -3,7 +3,7 @@ from rest_framework_simplejwt.views import TokenRefreshView
 
 from .views import (
     LoginView, MyProfilePictureView, ProjectListCreateView,
-    ProjectTaskListCreateView, RegisterView,
+    ProjectDetailView, ProjectTaskListCreateView, RegisterView,
     PasswordChangeView, TaskUpdateView,
 )
 
@@ -19,6 +19,7 @@ urlpatterns = [
         ProjectTaskListCreateView.as_view(),
         name="project-tasks",
     ),
+    path("projects/<uuid:project_id>/", ProjectDetailView.as_view(), name="project-detail"),
     path("users/me/", MyProfilePictureView.as_view(), name="my-profile-picture"),
     path("projects/", ProjectListCreateView.as_view(), name="project-list"),
     path("auth/register/", RegisterView.as_view(), name="register"),

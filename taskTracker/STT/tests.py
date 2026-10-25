@@ -480,3 +480,78 @@ class ProjectTaskTests(TestCase):
                     get_project_tasks(user=user, project_id=self.project.pk)
                 with self.assertRaises(NotAuthenticated):
                     create_project_task(user=user, project_id=self.project.pk, task_name="Denied")
+
+
+@override_settings(ROOT_URLCONF="taskTracker.urls")
+class ProjectAndTaskManagementApiTests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.owner = User.objects.create_user(email="manage_owner@example.com", full_name="Owner")
+        self.other = User.objects.create_user(email="manage_other@example.com", full_name="Other")
+        self.admin = User.objects.create_superuser(email="manage_admin@example.com")
+        self.project = Projects.objects.create(project_name="Managed", user_id=self.owner)
+        self.task = Tasks.objects.create(task_name="Managed task", project_id=self.project)
+        self.api = APIClient()
+
+    def as_user(self, user):
+        self.api.credentials(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(user).access_token}")
+
+    def test_owner_renames_and_describes_project(self):
+        self.as_user(self.owner)
+        response = self.api.patch(f"/api/projects/{self.project.pk}/", {"project_name": "Renamed", "description": "New"}, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.project.refresh_from_db()
+        self.assertEqual((self.project.project_name, self.project.description), ("Renamed", "New"))
+
+    def test_project_rename_rejects_owners_duplicate_name(self):
+        Projects.objects.create(project_name="Taken", user_id=self.owner)
+        self.as_user(self.owner)
+        response = self.api.patch(f"/api/projects/{self.project.pk}/", {"project_name": "Taken"}, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("project_name", response.data)
+
+    def test_owner_deletes_project_with_its_tasks(self):
+        self.as_user(self.owner)
+        response = self.api.delete(f"/api/projects/{self.project.pk}/")
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(Projects.objects.filter(pk=self.project.pk).exists())
+        self.assertFalse(Tasks.objects.filter(pk=self.task.pk).exists())
+
+    def test_admin_and_other_members_cannot_change_or_delete_project(self):
+        for user, expected in ((self.admin, 403), (self.other, 404)):
+            with self.subTest(user=user.email):
+                self.as_user(user)
+                self.assertEqual(self.api.patch(f"/api/projects/{self.project.pk}/", {"project_name": "Hijack"}, format="json").status_code, expected)
+                self.assertEqual(self.api.delete(f"/api/projects/{self.project.pk}/").status_code, expected)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.project_name, "Managed")
+        self.assertTrue(Tasks.objects.filter(pk=self.task.pk).exists())
+
+    def test_owner_edits_and_deletes_task(self):
+        self.as_user(self.owner)
+        url = f"/api/projects/{self.project.pk}/tasks/{self.task.pk}/"
+        response = self.api.patch(url, {"task_name": "Edited", "description": "Details", "due_date": "2026-11-02"}, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["task_name"], "Edited")
+        self.assertEqual(self.api.delete(url).status_code, 204)
+        self.assertFalse(Tasks.objects.filter(pk=self.task.pk).exists())
+
+    def test_admin_cannot_delete_members_task(self):
+        self.as_user(self.admin)
+        response = self.api.delete(f"/api/projects/{self.project.pk}/tasks/{self.task.pk}/")
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(Tasks.objects.filter(pk=self.task.pk).exists())
+
+    def test_names_are_unique_per_owner_and_project_only(self):
+        other_project = create_project(user=self.other, project_name="Managed")
+        create_project_task(user=self.other, project_id=other_project.pk, task_name="Managed task")
+        second = create_project(user=self.owner, project_name="Second")
+        create_project_task(user=self.owner, project_id=second.pk, task_name="Managed task")
+        with self.assertRaises(ValidationError):
+            create_project_task(user=self.owner, project_id=self.project.pk, task_name="Managed task")
+        self.as_user(self.owner)
+        Tasks.objects.create(task_name="Sibling", project_id=self.project)
+        response = self.api.patch(f"/api/projects/{self.project.pk}/tasks/{self.task.pk}/", {"task_name": "Sibling"}, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("task_name", response.data)
+

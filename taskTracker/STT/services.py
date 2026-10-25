@@ -95,7 +95,7 @@ def create_project(*, user, project_name, description=""):
         user_id=user,
     )
     try:
-        project.full_clean(validate_unique=False)
+        project.full_clean(validate_unique=False, validate_constraints=False)
     except DjangoValidationError as exc:
         raise ValidationError(exc.message_dict) from exc
 
@@ -103,7 +103,7 @@ def create_project(*, user, project_name, description=""):
         with transaction.atomic():
             project.save(force_insert=True)
     except IntegrityError as exc:
-        if Projects.objects.filter(project_name=project.project_name).exists():
+        if Projects.objects.filter(user_id=user, project_name=project.project_name).exists():
             raise ValidationError(
                 {"project_name": ["A project with this name already exists."]}
             ) from exc
@@ -155,7 +155,7 @@ def create_project_task(
         due_date=due_date,
     )
     try:
-        task.full_clean(validate_unique=False)
+        task.full_clean(validate_unique=False, validate_constraints=False)
     except DjangoValidationError as exc:
         raise ValidationError(exc.message_dict) from exc
 
@@ -163,30 +163,68 @@ def create_project_task(
         with transaction.atomic():
             task.save(force_insert=True)
     except IntegrityError as exc:
-        if Tasks.objects.filter(task_name=task.task_name).exists():
+        if Tasks.objects.filter(project_id=project, task_name=task.task_name).exists():
             raise ValidationError(
-                {"task_name": ["A task with this name already exists."]}
+                {"task_name": ["A task with this name already exists in this project."]}
             ) from exc
         raise
 
     return task
 
 
-def update_task(*, user, project_id, task_id, changes):
+def _owned_project(*, user, project_id, action):
+    """Return a visible project, refusing changes by anyone but its owner."""
     project = get_object_or_404(get_projects(user=user), pk=project_id)
     if project.user_id_id != user.pk:
-        raise PermissionDenied("Only the task owner can update this task.")
+        raise PermissionDenied(f"Only the project owner can {action}.")
+    return project
+
+
+def update_project(*, user, project_id, changes):
+    project = _owned_project(user=user, project_id=project_id, action="update this project")
+    for field in ("project_name", "description"):
+        if field in changes:
+            setattr(project, field, changes[field])
+    try:
+        project.full_clean(validate_unique=False, validate_constraints=False)
+    except DjangoValidationError as exc:
+        raise ValidationError(exc.message_dict) from exc
+    duplicate = Projects.objects.filter(user_id=user, project_name=project.project_name).exclude(pk=project.pk)
+    if duplicate.exists():
+        raise ValidationError({"project_name": ["A project with this name already exists."]})
+    project.save()
+    return project
+
+
+def delete_project(*, user, project_id):
+    """Delete an owned project together with all of its tasks."""
+    project = _owned_project(user=user, project_id=project_id, action="delete this project")
+    with transaction.atomic():
+        Tasks.objects.filter(project_id=project).delete()
+        project.delete()
+
+
+def update_task(*, user, project_id, task_id, changes):
+    project = _owned_project(user=user, project_id=project_id, action="update this task")
     task = get_object_or_404(Tasks, pk=task_id, project_id=project)
     for field in ("task_name", "description", "status", "due_date"):
         if field in changes:
             setattr(task, field, changes[field])
     try:
-        task.full_clean()
+        task.full_clean(validate_unique=False, validate_constraints=False)
     except DjangoValidationError as exc:
         raise ValidationError(exc.message_dict) from exc
+    duplicate = Tasks.objects.filter(project_id=project, task_name=task.task_name).exclude(pk=task.pk)
+    if duplicate.exists():
+        raise ValidationError({"task_name": ["A task with this name already exists in this project."]})
     with transaction.atomic():
         task.save()
     return task
+
+
+def delete_task(*, user, project_id, task_id):
+    project = _owned_project(user=user, project_id=project_id, action="delete this task")
+    get_object_or_404(Tasks, pk=task_id, project_id=project).delete()
 
 
 def update_user_profile(*, user, changes):

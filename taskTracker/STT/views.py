@@ -15,6 +15,7 @@ from .services import (
     create_project, get_projects, login_user, register_user, update_profile_picture,
     create_project_task, get_project_tasks,
     change_user_password, update_task, update_user_profile,
+    update_project, delete_project, delete_task,
 )
 
 
@@ -186,8 +187,32 @@ class ProjectTaskListCreateView(APIView):
         return Response(output.data, status=status.HTTP_201_CREATED)
 
 
-class TaskUpdateView(APIView):
+class ProjectDetailView(APIView):
+    """PATCH renames/describes and DELETE removes a project (owner only).
+
+    Deleting a project also deletes every task inside it.
+    """
+
+    authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
+    http_method_names = ["patch", "delete", "options"]
+
+    def patch(self, request, project_id):
+        get_project_tasks(user=request.user, project_id=project_id)
+        serializer = ProjectSerializer(data=request.data, partial=True, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        project = update_project(user=request.user, project_id=project_id, changes=serializer.validated_data)
+        return Response(ProjectSerializer(project, context={"request": request}).data)
+
+    def delete(self, request, project_id):
+        delete_project(user=request.user, project_id=project_id)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class TaskUpdateView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["patch", "delete", "options"]
 
     def patch(self, request, project_id, task_id):
         get_project_tasks(user=request.user, project_id=project_id)
@@ -195,6 +220,11 @@ class TaskUpdateView(APIView):
         serializer.is_valid(raise_exception=True)
         task = update_task(user=request.user, project_id=project_id, task_id=task_id, changes=serializer.validated_data)
         return Response(TaskSerializer(task, context={"request": request}).data)
+
+
+    def delete(self, request, project_id, task_id):
+        delete_task(user=request.user, project_id=project_id, task_id=task_id)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class PasswordChangeView(APIView):

@@ -197,7 +197,6 @@ class Projects(models.Model):
         db_column="project_id",
     )
     project_name = models.CharField(
-        unique=True,
         max_length=255,
         blank=False,
         null=False,
@@ -227,6 +226,13 @@ class Projects(models.Model):
 
     class Meta:
         db_table="projects"
+        constraints = [  # noqa: RUF012
+            # Names only need to be distinct within one owner's workspace.
+            models.UniqueConstraint(
+                fields=["user_id", "project_name"],
+                name="project_name_unique_per_owner",
+            )
+        ]
 
 
 class Tasks(models.Model):
@@ -238,7 +244,6 @@ class Tasks(models.Model):
         db_column="task_id",
     )
     task_name = models.CharField(
-        unique=True,
         max_length=255,
         blank=False,
         null=False,
@@ -276,5 +281,9 @@ class Tasks(models.Model):
                     status__in=[value for value, label in TASK_STATUS]
                 ),
                 name="task_status_valid"
-            )
+            ),
+            models.UniqueConstraint(
+                fields=["project_id", "task_name"],
+                name="task_name_unique_per_project",
+            ),
         ]
