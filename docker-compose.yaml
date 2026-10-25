@@ -8,6 +8,9 @@ services:
       sh -c "python manage.py migrate --noinput &&
              python manage.py runserver 0.0.0.0:8000"
     environment:
+      # This stack is for local development; production leaves DEBUG off and sets SECRET_KEY.
+      DEBUG: ${DEBUG:-True}
+      SECRET_KEY: ${SECRET_KEY:-}
       POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
       POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}

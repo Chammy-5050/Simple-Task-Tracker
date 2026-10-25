@@ -32,3 +32,9 @@ htmlcov/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# required for production purpose
+.env
+taskTracker/media/
+taskTracker/staticfiles/
+.backups/
