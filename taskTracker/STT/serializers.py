@@ -1,4 +1,11 @@
+from django.contrib.auth import get_user_model
 from rest_framework import serializers
+from rest_framework_simplejwt.exceptions import InvalidToken
+from rest_framework_simplejwt.serializers import TokenRefreshSerializer
+from rest_framework_simplejwt.settings import api_settings
+from rest_framework_simplejwt.utils import get_md5_hash_password
+
+from notifications.models import VerificationCode
 
 from .models import Projects, Tasks, Users
 
@@ -61,3 +68,47 @@ class PasswordChangeSerializer(serializers.Serializer):
     current_password = serializers.CharField(write_only=True, trim_whitespace=False)
     password = serializers.CharField(write_only=True, trim_whitespace=False)
     password_confirm = serializers.CharField(write_only=True, trim_whitespace=False)
+
+
+class RevocableTokenRefreshSerializer(TokenRefreshSerializer):
+    """Refuse refresh tokens issued before the account's password last changed.
+
+    simplejwt only checks the revoke claim on access tokens; without this a stale
+    refresh token would keep minting access tokens that are then rejected.
+    """
+
+    def validate(self, attrs):
+        refresh = self.token_class(attrs["refresh"])
+        user = get_user_model().objects.filter(
+            **{api_settings.USER_ID_FIELD: refresh.payload.get(api_settings.USER_ID_CLAIM)}
+        ).first()
+        if user is None or refresh.payload.get(api_settings.REVOKE_TOKEN_CLAIM) != get_md5_hash_password(user.password):
+            raise InvalidToken("This session has ended. Sign in again.")
+        return super().validate(attrs)
+
+
+CODE_FIELD = {"min_length": 6, "max_length": 6, "trim_whitespace": True}
+
+
+class VerifyEmailSerializer(serializers.Serializer):
+    email = serializers.EmailField(max_length=255)
+    code = serializers.RegexField(r"^\d{6}$", error_messages={"invalid": "Enter the 6-digit code."}, **CODE_FIELD)
+
+
+class ResendCodeSerializer(serializers.Serializer):
+    email = serializers.EmailField(max_length=255)
+    purpose = serializers.ChoiceField(choices=[value for value, _ in VerificationCode.PURPOSES])
+
+
+class ForgotPasswordSerializer(serializers.Serializer):
+    email = serializers.EmailField(max_length=255)
+
+
+class VerifyResetCodeSerializer(VerifyEmailSerializer):
+    pass
+
+
+class ResetPasswordSerializer(serializers.Serializer):
+    reset_token = serializers.CharField()
+    password = serializers.CharField(write_only=True, trim_whitespace=False)
+    confirm_password = serializers.CharField(write_only=True, trim_whitespace=False)

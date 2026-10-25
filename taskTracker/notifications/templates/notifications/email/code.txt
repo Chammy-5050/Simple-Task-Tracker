@@ -1,0 +1,11 @@
+{% autoescape off %}{{ heading }}
+
+Hi {{ full_name|default:"there" }},
+{{ intro }}
+
+Your code: {{ code }}
+
+This code expires in {{ expires_minutes }} minutes and can only be used once.
+
+Didn't ask for this? You can safely ignore this email. Never share this code with anyone; {{ app_name }} staff will never ask for it.
+{% endautoescape %}

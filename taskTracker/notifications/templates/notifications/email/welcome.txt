@@ -1,0 +1,7 @@
+{% autoescape off %}Welcome to {{ app_name }}
+
+Hi {{ full_name|default:"there" }},
+Your email is verified and your account is ready. Create a project, add tasks and keep every deadline in view.
+
+Sign in: {{ frontend_url }}/login
+{% endautoescape %}

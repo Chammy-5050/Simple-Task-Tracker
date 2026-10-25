@@ -5,6 +5,7 @@ from .views import (
     LoginView, MyProfilePictureView, ProjectListCreateView,
     ProjectDetailView, ProjectTaskListCreateView, RegisterView,
     PasswordChangeView, TaskUpdateView,
+    ForgotPasswordView, ResendCodeView, ResetPasswordView, VerifyEmailView, VerifyResetCodeView,
 )
 
 
@@ -24,4 +25,9 @@ urlpatterns = [
     path("projects/", ProjectListCreateView.as_view(), name="project-list"),
     path("auth/register/", RegisterView.as_view(), name="register"),
     path("auth/login/", LoginView.as_view(), name="login"),
+    path("auth/verify-email/", VerifyEmailView.as_view(), name="verify-email"),
+    path("auth/resend-code/", ResendCodeView.as_view(), name="resend-code"),
+    path("auth/password/forgot/", ForgotPasswordView.as_view(), name="password-forgot"),
+    path("auth/password/verify-code/", VerifyResetCodeView.as_view(), name="password-verify-code"),
+    path("auth/password/reset/", ResetPasswordView.as_view(), name="password-reset"),
 ]

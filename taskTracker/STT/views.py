@@ -6,16 +6,29 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
+from notifications.services import RESEND_COOLDOWN
+
 from .serializers import (
     LoginSerializer, ProfilePictureSerializer, ProjectSerializer, RegisterSerializer,
     TaskSerializer,
     PasswordChangeSerializer, UserProfileSerializer,
+    ForgotPasswordSerializer, ResendCodeSerializer, ResetPasswordSerializer,
+    VerifyEmailSerializer, VerifyResetCodeSerializer,
 )
 from .services import (
     create_project, get_projects, login_user, register_user, update_profile_picture,
     create_project_task, get_project_tasks,
     change_user_password, update_task, update_user_profile,
     update_project, delete_project, delete_task,
+    request_password_reset, resend_code, reset_password, verify_email, verify_reset_code,
+)
+from .throttles import CodeSendEmailThrottle, CodeSendIPThrottle, CodeVerifyThrottle
+
+# The client starts its "Resend code in 00:45" countdown from this.
+RESEND_IN_SECONDS = int(RESEND_COOLDOWN.total_seconds())
+CODE_SENT = (
+    "If an account can use a code, we've emailed one. "
+    "Check your inbox and spam folder."
 )
 
 
@@ -79,9 +92,81 @@ class RegisterView(APIView):
                 "user_id": user.pk,
                 "full_name": user.full_name,
                 "email": user.email,
+                "email_verification_required": True,
+                "resend_in": RESEND_IN_SECONDS,
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+class PublicAuthView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    http_method_names = ["post", "options"]
+
+    def no_store(self, data, status_code=status.HTTP_200_OK):
+        response = Response(data, status=status_code)
+        response["Cache-Control"] = "no-store"
+        return response
+
+
+class VerifyEmailView(PublicAuthView):
+    """POST {email, code}: confirm a new account's email with the emailed code."""
+
+    throttle_classes = [CodeVerifyThrottle]
+
+    def post(self, request):
+        serializer = VerifyEmailSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        verify_email(**serializer.validated_data)
+        return self.no_store({"detail": "Your email is verified. You can sign in now."})
+
+
+class ResendCodeView(PublicAuthView):
+    """POST {email, purpose}: send a fresh code. The reply never reveals whether the account exists."""
+
+    throttle_classes = [CodeSendIPThrottle, CodeSendEmailThrottle]
+
+    def post(self, request):
+        serializer = ResendCodeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        resend_code(**serializer.validated_data)
+        return self.no_store({"detail": CODE_SENT, "resend_in": RESEND_IN_SECONDS})
+
+
+class ForgotPasswordView(PublicAuthView):
+    """POST {email}: email a password reset code. Same reply whether or not the account exists."""
+
+    throttle_classes = [CodeSendIPThrottle, CodeSendEmailThrottle]
+
+    def post(self, request):
+        serializer = ForgotPasswordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        request_password_reset(**serializer.validated_data)
+        return self.no_store({"detail": CODE_SENT, "resend_in": RESEND_IN_SECONDS})
+
+
+class VerifyResetCodeView(PublicAuthView):
+    """POST {email, code}: exchange a reset code for a 15-minute single-use reset_token."""
+
+    throttle_classes = [CodeVerifyThrottle]
+
+    def post(self, request):
+        serializer = VerifyResetCodeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return self.no_store({"reset_token": verify_reset_code(**serializer.validated_data)})
+
+
+class ResetPasswordView(PublicAuthView):
+    """POST {reset_token, password, confirm_password}: set a new password and end all sessions."""
+
+    throttle_classes = [CodeVerifyThrottle]
+
+    def post(self, request):
+        serializer = ResetPasswordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reset_password(**serializer.validated_data)
+        return self.no_store({"detail": "Your password has been reset. Sign in with your new password."})
 
 
 class ProjectListCreateView(APIView):
@@ -220,7 +305,6 @@ class TaskUpdateView(APIView):
         serializer.is_valid(raise_exception=True)
         task = update_task(user=request.user, project_id=project_id, task_id=task_id, changes=serializer.validated_data)
         return Response(TaskSerializer(task, context={"request": request}).data)
-
 
     def delete(self, request, project_id, task_id):
         delete_task(user=request.user, project_id=project_id, task_id=task_id)

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>{{ subject }}</title>
+</head>
+<body style="margin:0;padding:0;background:#f4f3f6;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#25212d;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f3f6;padding:32px 16px;">
+  <tr><td align="center">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:16px;overflow:hidden;">
+      <tr><td align="center" style="background:#3b1a8f;background-image:linear-gradient(90deg,#4c1fa8,#2a1650);padding:28px 24px;">
+        <img src="{{ logo_url }}" width="48" height="48" alt="" style="display:block;border:0;border-radius:24px;background:#ffffff;">
+        <p style="margin:10px 0 0;font-size:18px;font-weight:700;color:#ffffff;letter-spacing:-0.2px;">{{ app_name }}</p>
+      </td></tr>
+      <tr><td style="padding:32px 32px 8px;">
+        {% block content %}{% endblock %}
+      </td></tr>
+      <tr><td style="padding:16px 32px 32px;font-size:12px;line-height:18px;color:#4e4758;">
+        {% block footer %}You are receiving this email because of activity on your {{ app_name }} account.{% endblock %}
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body>
+</html>

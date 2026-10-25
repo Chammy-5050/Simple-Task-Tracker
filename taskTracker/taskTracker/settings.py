@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
     'STT.apps.SttConfig',
+    'notifications.apps.NotificationsConfig',
 ]
 
 AUTH_USER_MODEL = 'STT.Users'
@@ -52,10 +53,34 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+    # Throttles key anonymous clients by REMOTE_ADDR unless a proxy count is set,
+    # so a client cannot dodge limits with a forged X-Forwarded-For header.
+    'NUM_PROXIES': int(os.getenv('TRUSTED_PROXY_COUNT', '0')),
+    'DEFAULT_THROTTLE_RATES': {
+        # Emails sent with a code (resend and forgot password), per IP and per address.
+        'code_send_ip': os.getenv('CODE_SEND_RATE', '5/hour'),
+        'code_send_email': os.getenv('CODE_SEND_RATE', '5/hour'),
+        # Code checks per IP; each code also locks after 5 wrong guesses.
+        'code_verify': os.getenv('CODE_VERIFY_RATE', '30/hour'),
+    },
 }
 
 SIMPLE_JWT = {
     'USER_ID_FIELD': 'user_id',
+    # Tokens carry a fingerprint of the password hash, so changing or resetting
+    # a password signs the account out everywhere.
+    'CHECK_REVOKE_TOKEN': True,
+    'TOKEN_REFRESH_SERIALIZER': 'STT.serializers.RevocableTokenRefreshSerializer',
+}
+
+# Throttle counters live in the cache; Redis shares them across worker processes.
+REDIS_URL = os.getenv('REDIS_URL', '')
+CACHES = {
+    'default': (
+        {'BACKEND': 'django.core.cache.backends.redis.RedisCache', 'LOCATION': REDIS_URL}
+        if REDIS_URL
+        else {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}
+    ),
 }
 
 MIDDLEWARE = [
@@ -145,7 +170,8 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+# Local calendar dates (task due dates, "today") follow the team's timezone.
+TIME_ZONE = os.getenv('TIME_ZONE', 'Africa/Dar_es_Salaam')
 
 USE_I18N = True
 
@@ -158,11 +184,39 @@ USE_TZ = True
 STATIC_URL = 'static/'
 
 # Uploaded files are stored separately from application static assets.
-MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+MEDIA_URL = os.getenv('MEDIA_URL', '/media/')
+MEDIA_ROOT = Path(os.getenv('MEDIA_ROOT', BASE_DIR / 'media'))
 
 
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
+# With SMTP_HOST unset, emails are printed to the server log instead of sent.
 
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+SMTP_HOST = os.getenv('SMTP_HOST', '')
+if SMTP_HOST:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+    EMAIL_HOST = SMTP_HOST
+    EMAIL_PORT = int(os.getenv('SMTP_PORT', '587'))
+    EMAIL_HOST_USER = os.getenv('SMTP_USER', '')
+    EMAIL_HOST_PASSWORD = os.getenv('SMTP_PASSWORD', '')
+    EMAIL_USE_TLS = os.getenv('SMTP_USE_TLS', 'false').lower() == 'true'
+    EMAIL_USE_SSL = os.getenv('SMTP_USE_SSL', 'false').lower() == 'true'
+    EMAIL_TIMEOUT = 15
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'Task Tracker <no-reply@tasktracker.local>')
+
+# Send emails on a background thread after the request's transaction commits.
+NOTIFICATIONS_ASYNC = os.getenv('EMAIL_ASYNC', 'true').lower() == 'true'
+# Links in emails point at the frontend; images load from the backend's static files.
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000').rstrip('/')
+EMAIL_ASSET_BASE_URL = os.getenv('EMAIL_ASSET_BASE_URL', 'http://localhost:8001').rstrip('/')
+# Password reset tokens returned by password/verify-code/ expire after this many seconds.
+PASSWORD_RESET_TOKEN_MAX_AGE = 15 * 60
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {'console': {'class': 'logging.StreamHandler'}},
+    'loggers': {'notifications': {'handlers': ['console'], 'level': 'INFO'}},
+}

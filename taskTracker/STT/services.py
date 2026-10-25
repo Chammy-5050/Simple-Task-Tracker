@@ -1,13 +1,39 @@
+from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.password_validation import validate_password
+from django.core import signing
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.forms import ImageField
 from django.shortcuts import get_object_or_404
-from rest_framework.exceptions import AuthenticationFailed, NotAuthenticated, PermissionDenied, ValidationError
+from django.utils import timezone
+from django.utils.crypto import constant_time_compare
+from rest_framework import status
+from rest_framework.exceptions import APIException, AuthenticationFailed, NotAuthenticated, PermissionDenied, ValidationError
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from notifications.models import VerificationCode
+from notifications.services import (
+    burn_hash_time, send_code, send_password_changed_email, send_welcome_email, verify_code,
+)
+
 from .models import Projects, Tasks
+
+INVALID_CODE = "That code is incorrect or has expired. Check the latest email or request a new code."
+INVALID_RESET_TOKEN = "This reset session has expired. Request a new code to try again."
+RESET_TOKEN_SALT = "STT.password-reset"
+
+
+class EmailNotVerified(APIException):
+    status_code = status.HTTP_403_FORBIDDEN
+    default_code = "email_not_verified"
+
+    def __init__(self, email):
+        super().__init__({
+            "detail": "Verify your email to sign in. We sent a 6-digit code to your inbox.",
+            "code": self.default_code,
+            "email": email,
+        })
 
 
 def login_user(*, request, email, password):
@@ -17,6 +43,10 @@ def login_user(*, request, email, password):
 
     if user is None or not user.is_active:
         raise AuthenticationFailed("Invalid email or password.")
+    if not user.email_verified:
+        # Only reachable with the right password, so this reveals nothing new.
+        send_code(user, VerificationCode.EMAIL_VERIFY)
+        raise EmailNotVerified(user.email)
 
     refresh = RefreshToken.for_user(user)
 
@@ -45,6 +75,7 @@ def register_user(*, email, full_name, phone_no, password, password_confirm):
     )
     user.is_superuser = False
     user.is_staff = False
+    user.email_verified = False
 
     try:
         validate_password(password, user=user)
@@ -67,6 +98,89 @@ def register_user(*, email, full_name, phone_no, password, password_confirm):
             ) from exc
         raise
 
+    send_code(user, VerificationCode.EMAIL_VERIFY)
+    return user
+
+
+def _active_user(email):
+    User = get_user_model()
+    return User.objects.filter(email=User.objects.normalize_email(email), is_active=True).first()
+
+
+def verify_email(*, email, code):
+    """Mark the account verified when the emailed code matches, then welcome them."""
+    user = _active_user(email)
+    if user is None or user.email_verified:
+        burn_hash_time(code)
+        raise ValidationError({"code": [INVALID_CODE]})
+    if verify_code(user=user, purpose=VerificationCode.EMAIL_VERIFY, code=code) is None:
+        raise ValidationError({"code": [INVALID_CODE]})
+    with transaction.atomic():
+        user.email_verified = True
+        user.save(update_fields=["email_verified", "updated_at"])
+        send_welcome_email(user)
+    return user
+
+
+def resend_code(*, email, purpose):
+    """Send a new code if the account can use one. Callers answer the same either way."""
+    user = _active_user(email)
+    if user is None:
+        return
+    if purpose == VerificationCode.EMAIL_VERIFY and user.email_verified:
+        return
+    send_code(user, purpose)
+
+
+def request_password_reset(*, email):
+    resend_code(email=email, purpose=VerificationCode.PASSWORD_RESET)
+
+
+def verify_reset_code(*, email, code):
+    """Exchange a valid reset code for a short-lived, single-use reset token.
+
+    The token embeds a fingerprint of the current password hash, so it stops
+    working as soon as the password changes (including by this reset).
+    """
+    user = _active_user(email)
+    if user is None:
+        burn_hash_time(code)
+        raise ValidationError({"code": [INVALID_CODE]})
+    used = verify_code(user=user, purpose=VerificationCode.PASSWORD_RESET, code=code)
+    if used is None:
+        raise ValidationError({"code": [INVALID_CODE]})
+    return signing.dumps(
+        {"u": str(user.pk), "c": str(used.pk), "p": user.get_session_auth_hash()},
+        salt=RESET_TOKEN_SALT,
+    )
+
+
+def reset_password(*, reset_token, password, confirm_password):
+    """Set a new password from a reset token and sign the account out everywhere."""
+    try:
+        data = signing.loads(reset_token, salt=RESET_TOKEN_SALT, max_age=settings.PASSWORD_RESET_TOKEN_MAX_AGE)
+    except signing.BadSignature as exc:
+        raise ValidationError({"reset_token": [INVALID_RESET_TOKEN]}) from exc
+    User = get_user_model()
+    user = User.objects.filter(pk=data.get("u"), is_active=True).first() if isinstance(data, dict) else None
+    if user is None or not constant_time_compare(str(data.get("p")), user.get_session_auth_hash()):
+        raise ValidationError({"reset_token": [INVALID_RESET_TOKEN]})
+    if password != confirm_password:
+        raise ValidationError({"confirm_password": ["Passwords do not match."]})
+    try:
+        validate_password(password, user=user)
+    except DjangoValidationError as exc:
+        raise ValidationError({"password": exc.messages}) from exc
+
+    with transaction.atomic():
+        user.set_password(password)
+        # Receiving the code proved the user owns this address.
+        user.email_verified = True
+        user.save(update_fields=["password", "email_verified", "updated_at"])
+        VerificationCode.objects.filter(
+            user=user, purpose=VerificationCode.PASSWORD_RESET, used_at__isnull=True,
+        ).update(expires_at=timezone.now())
+        send_password_changed_email(user)
     return user
 
 
@@ -251,5 +365,7 @@ def change_user_password(*, user, current_password, password, password_confirm):
         validate_password(password, user=user)
     except DjangoValidationError as exc:
         raise ValidationError({"password": exc.messages}) from exc
-    user.set_password(password)
-    user.save(update_fields=["password", "updated_at"])
+    with transaction.atomic():
+        user.set_password(password)
+        user.save(update_fields=["password", "updated_at"])
+        send_password_changed_email(user)

@@ -1,0 +1,9 @@
+{% extends "notifications/email/base.html" %}
+{% block content %}
+<h1 style="margin:0 0 12px;font-size:22px;line-height:28px;color:#25212d;">{{ heading }}</h1>
+<p style="margin:0 0 20px;font-size:15px;line-height:22px;">Hi {{ full_name|default:"there" }},<br>{{ intro }}</p>
+<p style="margin:0 0 8px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:#4e4758;">Your code</p>
+<p style="margin:0 0 20px;padding:16px;background:#efeafa;border-radius:12px;text-align:center;font-family:'SFMono-Regular',Consolas,'Courier New',monospace;font-size:34px;font-weight:700;letter-spacing:10px;color:#3b1688;">{{ code }}</p>
+<p style="margin:0 0 8px;font-size:14px;line-height:21px;">This code expires in {{ expires_minutes }} minutes and can only be used once.</p>
+{% endblock %}
+{% block footer %}Didn't ask for this? You can safely ignore this email. Never share this code with anyone; {{ app_name }} staff will never ask for it.{% endblock %}

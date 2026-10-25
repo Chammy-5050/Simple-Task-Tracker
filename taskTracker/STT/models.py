@@ -57,6 +57,9 @@ class UsersManager(BaseUserManager):
         if not email:
             raise ValueError("Users must have an email address")
         email = self.normalize_email(email)
+        # Accounts made by staff or scripts are trusted; public sign-up
+        # (STT.services.register_user) creates unverified accounts instead.
+        extra_fields.setdefault("email_verified", True)
         user = self.model(email=email, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
@@ -120,6 +123,10 @@ class Users(AbstractBaseUser):
         help_text="Gain superuser privileges without being assigned"
     )
     is_active = models.BooleanField(default=True)
+    email_verified = models.BooleanField(
+        default=False,
+        help_text="Self-registered accounts must confirm their email with a code before signing in.",
+    )
     is_staff = models.BooleanField(default=False)
     role = models.ForeignKey(
         Roles,
