@@ -555,3 +555,19 @@ class ProjectAndTaskManagementApiTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("task_name", response.data)
 
+
+class SeedDemoCommandTests(TestCase):
+    def test_seed_is_repeatable_and_removable(self):
+        from django.core.management import call_command
+        from io import StringIO
+
+        call_command("seed_demo", stdout=StringIO())
+        call_command("seed_demo", stdout=StringIO())
+        demo = get_user_model().objects.filter(email__endswith="@demo.tasktracker.test")
+        self.assertEqual(demo.count(), 4)
+        self.assertEqual(demo.filter(is_superuser=True).count(), 1)
+        self.assertEqual(Projects.objects.count(), 4)
+        self.assertEqual(Tasks.objects.count(), 18)
+        call_command("seed_demo", "--remove", stdout=StringIO())
+        self.assertFalse(demo.exists())
+        self.assertFalse(Tasks.objects.exists())
