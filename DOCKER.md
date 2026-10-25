@@ -4,7 +4,7 @@ Start Docker Desktop, then run these commands from this directory.
 
 The Compose file, Dockerfile, and `.env` stay at the repository root. Django's `manage.py`, `requirements.txt`, and `.dockerignore` live in `taskTracker/`. Compose uses that folder as the build context and mounts it at `/app`, so commands inside the container still run beside `manage.py`.
 
-If `.env` does not exist, copy `.env.template` to `.env` and enter your database credentials. Docker Compose reads this file automatically and passes its database settings to Django without overriding them.
+If `.env` does not exist, copy `.env.example` to `.env` and enter your database credentials. Docker Compose reads this file automatically and passes its database settings to Django without overriding them.
 
 ```powershell
 docker compose -f docker-compose.yaml up --build -d

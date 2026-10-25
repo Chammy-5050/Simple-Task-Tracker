@@ -13,7 +13,20 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_HOST: ${POSTGRES_HOST:?Set POSTGRES_HOST in .env}
       POSTGRES_PORT: ${POSTGRES_PORT:?Set POSTGRES_PORT in .env}
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001}
+      # Email defaults to the local Mailpit inbox below; set SMTP_* in .env for a real server.
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-false}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-Task Tracker <no-reply@tasktracker.local>}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      EMAIL_ASSET_BASE_URL: ${EMAIL_ASSET_BASE_URL:-http://localhost:8001}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CODE_SEND_RATE: ${CODE_SEND_RATE:-5/hour}
+      MEDIA_URL: ${MEDIA_URL:-/media/}
+      MEDIA_ROOT: ${MEDIA_ROOT:-/app/media}
     ports:
       - "127.0.0.1:8001:8000"
     volumes:
@@ -21,6 +34,31 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+
+  # Development inbox: every email the backend sends appears at http://localhost:8025.
+  mailpit:
+    container_name: stt-mailpit
+    image: axllent/mailpit:v1.27
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8025:8025"
+      - "127.0.0.1:1025:1025"
+
+  # Shared cache for rate-limit counters on the code endpoints.
+  redis:
+    container_name: stt-redis
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   db:
     container_name: stt-db
