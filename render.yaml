@@ -1,61 +1,42 @@
-# Render Blueprint for the Django API (Dashboard → New → Blueprint → this repo).
-# Values marked `sync: false` are secrets: Render asks for them when the Blueprint
-# is created, and they never live in git. Everything else is safe to commit.
+# Exported from Render on 2026-10-26T01:49:03Z
+version: "1"
 services:
-  - type: web
-    name: stt-backend
-    runtime: python
-    plan: free
-    rootDir: taskTracker
-    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
-    # Free instances have no pre-deploy step, so migrations run before the server starts.
-    startCommand: >-
-      python manage.py migrate --noinput &&
-      python manage.py createcachetable &&
-      gunicorn taskTracker.wsgi:application --bind 0.0.0.0:$PORT
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.14.9
-      - key: DEBUG
-        value: "False"
-      - key: SECRET_KEY
-        generateValue: true
-      # Render's proxy adds one X-Forwarded-For hop; throttles use the client IP before it.
-      - key: TRUSTED_PROXY_COUNT
-        value: "1"
-
-      # Neon: direct (non-pooler) host; the role's search_path is set in Neon.
-      - key: POSTGRES_HOST
-        value: ep-snowy-surf-b41cm3vg.c-6.us-east-2.aws.neon.tech
-      - key: POSTGRES_PORT
-        value: "5432"
-      - key: POSTGRES_DB
-        value: neondb
-      - key: POSTGRES_USER
-        value: neondb_owner
-      - key: POSTGRES_PASSWORD
-        sync: false
-      - key: POSTGRES_SSLMODE
-        value: require
-
-      # Frontend on Vercel.
-      - key: CORS_ALLOWED_ORIGINS
-        value: https://stt-frontend-kenethpmussa.vercel.app
-      - key: FRONTEND_URL
-        value: https://stt-frontend-kenethpmussa.vercel.app
-
-      # Email through Brevo's API (Render's free tier blocks SMTP ports).
-      - key: BREVO_API_KEY
-        sync: false
-      - key: DEFAULT_FROM_EMAIL
-        sync: false
-
-      # Profile pictures in Cloudflare R2 (Render's disk is wiped on every deploy).
-      - key: S3_BUCKET_NAME
-        value: stt-media
-      - key: S3_ENDPOINT_URL
-        value: https://0b5b39f0e39b86f4f63d44feb533788d.r2.cloudflarestorage.com
-      - key: S3_ACCESS_KEY_ID
-        sync: false
-      - key: S3_SECRET_ACCESS_KEY
-        sync: false
+- type: web
+  name: stt-backend
+  runtime: python
+  repo: https://github.com/Chammy-5050/Simple-Task-Tracker
+  plan: free
+  envVars:
+  - key: S3_ENDPOINT_URL
+    sync: false
+  - key: S3_BUCKET_NAME
+    sync: false
+  - key: FRONTEND_URL
+    sync: false
+  - key: CORS_ALLOWED_ORIGINS
+    sync: false
+  - key: POSTGRES_SSLMODE
+    sync: false
+  - key: POSTGRES_USER
+    sync: false
+  - key: POSTGRES_DB
+    sync: false
+  - key: POSTGRES_PORT
+    sync: false
+  - key: POSTGRES_HOST
+    sync: false
+  - key: TRUSTED_PROXY_COUNT
+    sync: false
+  - key: SECRET_KEY
+    sync: false
+  - key: DEBUG
+    sync: false
+  - key: PYTHON_VERSION
+    sync: false
+  region: oregon
+  buildCommand: pip install -r requirements.txt && python manage.py collectstatic
+    --noinput
+  startCommand: python manage.py migrate --noinput && python manage.py createcachetable
+    && gunicorn taskTracker.wsgi:application --bind 0.0.0.0:$PORT
+  autoDeployTrigger: commit
+  rootDir: taskTracker
