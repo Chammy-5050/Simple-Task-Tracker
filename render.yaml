@@ -56,8 +56,9 @@ services:
       # Email through Brevo's API (Render's free tier blocks SMTP ports).
       - key: BREVO_API_KEY
         sync: false
+      # Must match a sender verified in Brevo (Senders, Domains & Dedicated IPs → Senders).
       - key: DEFAULT_FROM_EMAIL
-        sync: false
+        value: Simple Task Tracker <simpletasktrack@gmail.com>
 
       # Profile pictures in Cloudflare R2 (Render's disk is wiped on every deploy).
       - key: S3_BUCKET_NAME
