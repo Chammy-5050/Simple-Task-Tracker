@@ -1,6 +1,7 @@
 services:
   web:
     container_name: stt-backend
+    restart: unless-stopped
     build:
       context: ./taskTracker
       dockerfile: ../Dockerfile
