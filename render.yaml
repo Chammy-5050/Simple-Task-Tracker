@@ -49,9 +49,9 @@ services:
 
       # Frontend on Vercel.
       - key: CORS_ALLOWED_ORIGINS
-        value: https://simpletasktracker.vercel.app,https://stt-frontend-kenethpmussa.vercel.app
+        value: https://stt-frontend-sand.vercel.app
       - key: FRONTEND_URL
-        value: https://simpletasktracker.vercel.app
+        value: https://stt-frontend-sand.vercel.app/
 
       # Email through the Gmail API over HTTPS (Render's free tier blocks SMTP ports).
       # Values come from scripts/gmail_refresh_token.py.
