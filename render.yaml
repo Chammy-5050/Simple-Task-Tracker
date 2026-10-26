@@ -58,7 +58,7 @@ services:
         sync: false
       # Must match a sender verified in Brevo (Senders, Domains & Dedicated IPs → Senders).
       - key: DEFAULT_FROM_EMAIL
-        value: Simple Task Tracker <simpletasktrack@gmail.com>
+        value: Simple Task Tracker <simpletasktracker@gmail.com>
 
       # Profile pictures in Cloudflare R2 (Render's disk is wiped on every deploy).
       - key: S3_BUCKET_NAME
