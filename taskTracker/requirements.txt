@@ -6,6 +6,5 @@ Pillow>=12,<13
 django-cors-headers>=4.7,<5
 redis>=5.2,<8
 whitenoise>=6.8,<7
-django-anymail[brevo]>=12,<15
 django-storages[s3]>=1.14,<2
 gunicorn>=23,<24

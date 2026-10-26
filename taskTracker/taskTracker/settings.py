@@ -53,11 +53,20 @@ ALLOWED_HOSTS = env_list(
 # plus the frontend). Must include the scheme, e.g. https://your-api.onrender.com
 CSRF_TRUSTED_ORIGINS = env_list('CSRF_TRUSTED_ORIGINS')
 
+# Render sets these to the service's own address, so its domain needs no manual entry.
+RENDER_EXTERNAL_HOSTNAME = os.getenv('RENDER_EXTERNAL_HOSTNAME', '')
+if RENDER_EXTERNAL_HOSTNAME:
+    ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
+    CSRF_TRUSTED_ORIGINS.append(f'https://{RENDER_EXTERNAL_HOSTNAME}')
+
 if not DEBUG:
     # Render terminates HTTPS at its proxy and forwards plain HTTP with this header.
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
+    # Send plain-HTTP visitors to HTTPS, and tell browsers to use HTTPS only.
+    SECURE_SSL_REDIRECT = True
+    SECURE_HSTS_SECONDS = int(os.getenv('SECURE_HSTS_SECONDS', str(30 * 24 * 3600)))
 
 
 # ---------------------------------------------------------------------------
@@ -293,12 +302,13 @@ if S3_BUCKET_NAME:
 # 2. SMTP_HOST set     -> SMTP (local Docker sends to Mailpit).
 # 3. Neither           -> emails are printed to the server log.
 
-BREVO_API_KEY = os.getenv('BREVO_API_KEY', '')
+BREVO_API_KEY = os.getenv('BREVO_API_KEY', '').strip()
 SMTP_HOST = os.getenv('SMTP_HOST', '')
+# Render sets RENDER=true; without Brevo it could not send codes at all, so fail at startup.
+if env_bool('RENDER') and not BREVO_API_KEY:
+    raise ImproperlyConfigured('Set BREVO_API_KEY on Render.')
 if BREVO_API_KEY:
-    INSTALLED_APPS.append('anymail')
-    EMAIL_BACKEND = 'anymail.backends.brevo.EmailBackend'
-    ANYMAIL = {'BREVO_API_KEY': BREVO_API_KEY}
+    EMAIL_BACKEND = 'taskTracker.email_backend.BrevoEmailBackend'
 elif SMTP_HOST:
     EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
     EMAIL_HOST = SMTP_HOST
@@ -318,7 +328,9 @@ DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'Task Tracker <no-reply@tas
 NOTIFICATIONS_ASYNC = env_bool('EMAIL_ASYNC', 'true')
 # Links in emails point at the frontend; images load from the backend's static files.
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000').rstrip('/')
-EMAIL_ASSET_BASE_URL = os.getenv('EMAIL_ASSET_BASE_URL', 'http://localhost:8001').rstrip('/')
+EMAIL_ASSET_BASE_URL = os.getenv(
+    'EMAIL_ASSET_BASE_URL', os.getenv('RENDER_EXTERNAL_URL', 'http://localhost:8001'),
+).rstrip('/')
 # Password reset tokens returned by password/verify-code/ expire after this many seconds.
 PASSWORD_RESET_TOKEN_MAX_AGE = 15 * 60
 
