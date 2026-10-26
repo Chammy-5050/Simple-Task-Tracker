@@ -299,18 +299,21 @@ if S3_BUCKET_NAME:
 # Email
 # ---------------------------------------------------------------------------
 # Priority:
-# 1. BREVO_API_KEY set -> Brevo's HTTPS API (production: Render's free tier
-#    blocks outbound SMTP ports 25, 465 and 587).
-# 2. SMTP_HOST set     -> SMTP (local Docker sends to Mailpit).
-# 3. Neither           -> emails are printed to the server log.
+# 1. GMAIL_REFRESH_TOKEN set -> Gmail API over HTTPS (production: Render's free
+#    tier blocks outbound SMTP ports 25, 465 and 587).
+# 2. SMTP_HOST set           -> SMTP (local Docker sends to Mailpit).
+# 3. Neither                 -> emails are printed to the server log.
 
-BREVO_API_KEY = os.getenv('BREVO_API_KEY', '').strip()
+# OAuth client and refresh token from scripts/gmail_refresh_token.py.
+GMAIL_CLIENT_ID = os.getenv('GMAIL_CLIENT_ID', '').strip()
+GMAIL_CLIENT_SECRET = os.getenv('GMAIL_CLIENT_SECRET', '').strip()
+GMAIL_REFRESH_TOKEN = os.getenv('GMAIL_REFRESH_TOKEN', '').strip()
 SMTP_HOST = os.getenv('SMTP_HOST', '')
-# Render sets RENDER=true; without Brevo it could not send codes at all, so fail at startup.
-if env_bool('RENDER') and not BREVO_API_KEY:
-    raise ImproperlyConfigured('Set BREVO_API_KEY on Render.')
-if BREVO_API_KEY:
-    EMAIL_BACKEND = 'taskTracker.email_backend.BrevoEmailBackend'
+# Render sets RENDER=true; without the Gmail API it could not send codes at all, so fail at startup.
+if env_bool('RENDER') and not (GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET and GMAIL_REFRESH_TOKEN):
+    raise ImproperlyConfigured('Set GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET and GMAIL_REFRESH_TOKEN on Render.')
+if GMAIL_REFRESH_TOKEN:
+    EMAIL_BACKEND = 'taskTracker.email_backend.GmailApiEmailBackend'
 elif SMTP_HOST:
     EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
     EMAIL_HOST = SMTP_HOST
@@ -323,7 +326,7 @@ elif SMTP_HOST:
 else:
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
-# In production this must be an address (or domain) verified with your email provider.
+# With the Gmail API this must be the address of the Google account that granted the token.
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'Task Tracker <no-reply@tasktracker.local>')
 
 # Send emails on a background thread after the request's transaction commits.

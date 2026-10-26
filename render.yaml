@@ -53,12 +53,17 @@ services:
       - key: FRONTEND_URL
         value: https://simpletasktracker.vercel.app
 
-      # Email through Brevo's API (Render's free tier blocks SMTP ports).
-      - key: BREVO_API_KEY
+      # Email through the Gmail API over HTTPS (Render's free tier blocks SMTP ports).
+      # Values come from scripts/gmail_refresh_token.py.
+      - key: GMAIL_CLIENT_ID
         sync: false
-      # Must match a sender verified in Brevo (Senders, Domains & Dedicated IPs → Senders).
+      - key: GMAIL_CLIENT_SECRET
+        sync: false
+      - key: GMAIL_REFRESH_TOKEN
+        sync: false
+      # Must be the Google account that granted the refresh token.
       - key: DEFAULT_FROM_EMAIL
-        value: Simple Task Tracker <simpletasktrack@gmail.com>
+        value: Simple Task Tracker <wajangasamwel@gmail.com>
 
       # Profile pictures in Cloudflare R2 (Render's disk is wiped on every deploy).
       - key: S3_BUCKET_NAME
