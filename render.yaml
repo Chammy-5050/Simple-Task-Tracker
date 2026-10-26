@@ -24,19 +24,28 @@ services:
       - key: TRUSTED_PROXY_COUNT
         value: "1"
 
-      # Neon: direct (non-pooler) host; the role's search_path is set in Neon.
+      # Render Postgres (below): connection details come from the database itself,
+      # over Render's private network, so no password is copied by hand.
       - key: POSTGRES_HOST
-        value: ep-snowy-surf-b41cm3vg.c-6.us-east-2.aws.neon.tech
+        fromDatabase:
+          name: stt-db
+          property: host
       - key: POSTGRES_PORT
-        value: "5432"
+        fromDatabase:
+          name: stt-db
+          property: port
       - key: POSTGRES_DB
-        value: neondb
+        fromDatabase:
+          name: stt-db
+          property: database
       - key: POSTGRES_USER
-        value: neondb_owner
+        fromDatabase:
+          name: stt-db
+          property: user
       - key: POSTGRES_PASSWORD
-        sync: false
-      - key: POSTGRES_SSLMODE
-        value: require
+        fromDatabase:
+          name: stt-db
+          property: password
 
       # Frontend on Vercel.
       - key: CORS_ALLOWED_ORIGINS
@@ -59,3 +68,11 @@ services:
         sync: false
       - key: S3_SECRET_ACCESS_KEY
         sync: false
+
+databases:
+  # Must be in the same region as the web service for the private connection to work.
+  - name: stt-db
+    plan: free
+    databaseName: smalltask
+    user: tasktracker
+    postgresMajorVersion: "17"
