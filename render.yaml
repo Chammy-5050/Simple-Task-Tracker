@@ -49,9 +49,9 @@ services:
 
       # Frontend on Vercel.
       - key: CORS_ALLOWED_ORIGINS
-        value: https://stt-frontend-kenethpmussa.vercel.app
+        value: https://simpletasktracker.vercel.app,https://stt-frontend-kenethpmussa.vercel.app
       - key: FRONTEND_URL
-        value: https://stt-frontend-kenethpmussa.vercel.app
+        value: https://simpletasktracker.vercel.app
 
       # Email through Brevo's API (Render's free tier blocks SMTP ports).
       - key: BREVO_API_KEY
